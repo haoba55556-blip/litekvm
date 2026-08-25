@@ -48,14 +48,17 @@ static const int16_t kProtocolMajorVersion = 1;
 static const int16_t kProtocolMinorVersion = 8;
 
 /**
- * @brief Default TCP port for Deskflow connections
+ * @brief Default TCP port for LiteKVM connections
+ *
+ * Changed from upstream Deskflow's 24800 so the two products can coexist
+ * on the same machine without accidental connections.
  *
  * Clients connect to this port on the server by default.
  * Can be overridden in configuration.
  *
  * @since Protocol version 1.0
  */
-static const uint16_t kDefaultPort = 24800;
+static const uint16_t kDefaultPort = 25900;
 
 /**
  * @brief Maximum length for client greeting message

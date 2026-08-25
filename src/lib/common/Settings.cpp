@@ -217,7 +217,7 @@ QVariant Settings::defaultValue(const QString &key)
     return QStringLiteral("%1/%2-server.conf").arg(Settings::settingsPath(), kAppId);
 
   if (key == Core::Port)
-    return 24800;
+    return 25900; // LiteKVM default (upstream Deskflow uses 24800)
 
   if (key == Core::ProcessMode) {
 #ifdef Q_OS_WIN
