@@ -15,6 +15,8 @@ add_library(litekvm STATIC
   TrustStore.h
   DiscoveryService.cpp
   DiscoveryService.h
+  LayoutSync.cpp
+  LayoutSync.h
   MdnsAdvertiser.cpp
   MdnsAdvertiser.h
   PairingService.cpp

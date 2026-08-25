@@ -25,6 +25,8 @@ add_library(${target} STATIC
   Hotkey.h
   KeySequence.cpp
   KeySequence.h
+  LiteKvmController.cpp
+  LiteKvmController.h
   Logger.cpp
   Logger.h
   MainWindow.cpp
@@ -32,6 +34,8 @@ add_library(${target} STATIC
   MainWindow.ui
   Messages.cpp
   Messages.h
+  NearbyPanel.cpp
+  NearbyPanel.h
   ScreenSetupModel.cpp
   ScreenSetupModel.h
   StyleUtils.h
@@ -127,6 +131,7 @@ add_library(${target} STATIC
 target_link_libraries(${target}
   PUBLIC
     common
+    litekvm
     platform
     net
     Qt6::Widgets

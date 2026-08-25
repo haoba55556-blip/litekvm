@@ -37,9 +37,13 @@ namespace Ui {
 class MainWindow;
 }
 
-namespace deskflow::gui::ipc {
+namespace deskflow::gui {
+class LiteKvmController;
+class NearbyPanel;
+namespace ipc {
 class DaemonIpcClient;
 }
+} // namespace deskflow::gui
 
 class MainWindow : public QMainWindow
 {
@@ -184,6 +188,7 @@ private:
 
   LogDock *m_logDock;
   StatusBar *m_statusBar = nullptr;
+  deskflow::gui::LiteKvmController *m_liteKvmController = nullptr;
 
   // Window Menu
   QMenu *m_menuFile = nullptr;

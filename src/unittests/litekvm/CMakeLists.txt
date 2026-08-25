@@ -14,3 +14,10 @@ create_test(
   SOURCE PairingIntegrationTests.cpp
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/litekvm"
 )
+
+create_test(
+  NAME LayoutSyncTests
+  DEPENDS litekvm
+  SOURCE LayoutSyncTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/litekvm"
+)

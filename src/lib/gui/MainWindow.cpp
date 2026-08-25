@@ -11,6 +11,8 @@
 #include "ui_MainWindow.h"
 
 #include "Diagnostic.h"
+#include "LiteKvmController.h"
+#include "NearbyPanel.h"
 #include "StyleUtils.h"
 
 #include "dialogs/AboutDialog.h"
@@ -82,6 +84,10 @@ MainWindow::MainWindow()
       m_networkMonitor{new NetworkMonitor(this)}
 {
   ui->setupUi(this);
+
+  // LiteKVM zero-config panel: discovery + PIN pairing
+  m_liteKvmController = new LiteKvmController(this);
+  ui->nearbyPanel->setController(m_liteKvmController);
 
   setWindowIcon(QIcon::fromTheme(kRevFqdnName));
 

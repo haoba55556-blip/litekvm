@@ -1357,6 +1357,102 @@ Al habilitar esta opción, se deshabilitará la interfaz gráfica de usuario (GU
     </message>
 </context>
 <context>
+    <name>deskflow::gui::NearbyPanel</name>
+    <message>
+        <source>附近的电脑 / Nearby computers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>名称</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>平台</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>状态</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>配对…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>已配对</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>可配对</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>忙碌</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>配对确认</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>要和选中的电脑配对吗？
+
+对方屏幕上会显示一个 6 位数字，在这里输入它完成配对。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>输入配对码</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>电脑「%1」正在配对。
+对方屏幕显示的 6 位数字是：
+
+（在下面输入对方屏幕上显示的数字）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>✅ 已与「%1」配对</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>配对成功</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>已与「%1」建立信任，可以开始共享键鼠了。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>配对码不对，请重试。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>错误次数过多，已锁定 10 分钟。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>对方正忙，稍后再试。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>对方拒绝了配对。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>连接超时。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>配对失败。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>❌ %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>i18n</name>
     <message>
         <source>LocalizedName</source>
