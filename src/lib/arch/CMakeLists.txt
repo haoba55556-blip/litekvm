@@ -44,3 +44,9 @@ add_library(arch STATIC ${PLATFORM_CODE}
 )
 
 target_link_libraries (arch PUBLIC common)
+# LiteKVM: ws2_32 required by ArchNetworkWinsock on MinGW (upstream relies on
+# #pragma comment(lib) which MSVC honors but gcc/ld ignores). PUBLIC so tests
+# linking arch transitively get it too.
+if(MINGW)
+  target_link_libraries(arch PUBLIC ws2_32)
+endif()

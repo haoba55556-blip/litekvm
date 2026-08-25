@@ -34,7 +34,13 @@ function(create_test)
   endif()
 
   add_executable(${m_NAME} ${m_SOURCE})
-  target_link_libraries(${m_NAME} ${m_DEPENDS} ${m_LIBS} Qt::Test)
+  if(MINGW)
+    # LiteKVM: wrap libs in --start-group so circular deps between static
+    # libs (arch<->base) resolve on ld; MSVC doesn't need/understand this
+    target_link_libraries(${m_NAME} -Wl,--start-group ${m_DEPENDS} ${m_LIBS} -Wl,--end-group Qt::Test)
+  else()
+    target_link_libraries(${m_NAME} ${m_DEPENDS} ${m_LIBS} Qt::Test)
+  endif()
   if (CMAKE_CXX_BYTE_ORDER STREQUAL "BIG_ENDIAN")
     target_compile_definitions(${m_NAME} PUBLIC WORDS_BIGENDIAN=1)
   endif()

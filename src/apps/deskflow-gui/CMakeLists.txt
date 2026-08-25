@@ -41,13 +41,27 @@ add_executable(${target} WIN32 MACOSX_BUNDLE
   deskflow-gui.cpp
 )
 
-target_link_libraries(
-  ${target}
-  gui
-  common
-  Qt6::Core
-  Qt6::Widgets
-  Qt6::Network)
+# LiteKVM: wrap in --start-group for MinGW so circular static-lib deps
+# (client<->net etc.) resolve on ld; MSVC doesn't need/understand this
+if(MINGW)
+  target_link_libraries(
+    ${target}
+    -Wl,--start-group
+    gui
+    common
+    Qt6::Core
+    Qt6::Widgets
+    Qt6::Network
+    -Wl,--end-group)
+else()
+  target_link_libraries(
+    ${target}
+    gui
+    common
+    Qt6::Core
+    Qt6::Widgets
+    Qt6::Network)
+endif()
 
 install(
   TARGETS ${target}
@@ -57,7 +71,11 @@ install(
 )
 
 if(WIN32)
-  set_target_properties(${target} PROPERTIES LINK_FLAGS "/NODEFAULTLIB:LIBCMT")
+  # LiteKVM: /NODEFAULTLIB:LIBCMT is MSVC-only (avoids CRT mismatch); MinGW
+  # links libc via gcc driver and would choke on the flag
+  if(MSVC)
+    set_target_properties(${target} PROPERTIES LINK_FLAGS "/NODEFAULTLIB:LIBCMT")
+  endif()
 
   install(RUNTIME_DEPENDENCY_SET guiDeps
     ${WIN32_RUNTIME_DEPENDENCY_SET_ARGS}

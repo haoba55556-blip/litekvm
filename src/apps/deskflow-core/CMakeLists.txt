@@ -25,19 +25,39 @@ if(WIN32)
   )
 endif()
 
-target_link_libraries(
-  ${target}
-  arch
-  base
-  client
-  io
-  mt
-  net
-  platform
-  server
-  app
-  Qt6::Widgets
-  ${libs})
+# LiteKVM: wrap in --start-group for MinGW so circular static-lib deps
+# resolve on ld; MSVC doesn't need/understand this
+if(MINGW)
+  target_link_libraries(
+    ${target}
+    -Wl,--start-group
+    arch
+    base
+    client
+    io
+    mt
+    net
+    platform
+    server
+    app
+    Qt6::Widgets
+    ${libs}
+    -Wl,--end-group)
+else()
+  target_link_libraries(
+    ${target}
+    arch
+    base
+    client
+    io
+    mt
+    net
+    platform
+    server
+    app
+    Qt6::Widgets
+    ${libs})
+endif()
 
 install(
   TARGETS ${target}

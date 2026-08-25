@@ -8,9 +8,18 @@ macro(configure_libs)
   if(UNIX)
     configure_unix_libs()
   elseif(WIN32)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MD /O2 /Ob2")
-    list(APPEND libs Wtsapi32 Userenv Wininet comsuppw Shlwapi version)
+    # LiteKVM: guard MSVC-only flags — MinGW/gcc rejects /MP /MD /O2 /Ob2
+    if(MSVC)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
+      set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MD /O2 /Ob2")
+    endif()
+    # LiteKVM: comsuppw is an MSVC-only COM support library — MinGW has no
+    # equivalent; ws2_32 needed by ArchNetworkWinsock on all Windows compilers
+    # (upstream relies on #pragma comment(lib) which only works on MSVC)
+    list(APPEND libs Wtsapi32 Userenv Wininet Shlwapi version ws2_32)
+    if(MSVC)
+      list(APPEND libs comsuppw)
+    endif()
     add_definitions(
       /DWIN32
       /D_WINDOWS
