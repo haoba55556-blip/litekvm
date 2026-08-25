@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: MIT
 // Generic Template for rc files in deskflow
 #include <windows.h>
+// LiteKVM: MinGW-w64 provides the version resource declarations in winver.h
+// (no separate verrsrc.h); MSVC ships verrsrc.h.
+#ifdef __MINGW32__
+#include <winver.h>
+#else
 #include <verrsrc.h>
+#endif
 
 
 @EXE_ICON@

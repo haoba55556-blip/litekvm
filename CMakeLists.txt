@@ -153,6 +153,15 @@ if (MSVC)
   endif()
 endif()
 
+# LiteKVM: MinGW builds don't set the MSVC runtime requirement (upstream
+# only fills these in the MSVC branch). Default to a stable recent CRT
+# version so Constants.h.in renders valid values.
+if(NOT DEFINED REQUIRED_MSVC_RUNTIME_MAJOR)
+  set(REQUIRED_MSVC_RUNTIME_MAJOR 14)
+  set(REQUIRED_MSVC_RUNTIME_MINOR 40)
+  message(STATUS "MSVC runtime (defaulted for MinGW): ${REQUIRED_MSVC_RUNTIME_MAJOR}.${REQUIRED_MSVC_RUNTIME_MINOR}")
+endif()
+
 # Control debug item visibility
 # When not set logging is forced to DEBUG and show code locations
 # Also exposes a test menu
