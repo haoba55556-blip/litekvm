@@ -4,7 +4,7 @@
 
 **零配置开源键鼠共享 —— 装上 → 附近电脑 → 输 PIN 配对 → 直接用**
 
-[![CI](https://github.com/haoba55556-blip/deskflow/actions/workflows/ci.yml/badge.svg)](https://github.com/haoba55556-blip/deskflow/actions/workflows/ci.yml)
+[![CI](https://github.com/haoba55556-blip/litekvm/actions/workflows/ci.yml/badge.svg)](https://github.com/haoba55556-blip/litekvm/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/badge/version-0.1.0--alpha.1-orange)](CHANGELOG.md)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
@@ -40,7 +40,7 @@ LiteKVM is a free, open-source, zero-config software KVM: install it once, let m
 目前请从源码构建，三平台详细依赖与步骤见 **[docs/BUILDING.md](docs/BUILDING.md)**：
 
 ```bash
-git clone https://github.com/haoba55556-blip/deskflow.git litekvm
+git clone https://github.com/haoba55556-blip/litekvm.git
 cd litekvm
 cmake -B build
 cmake --build build
