@@ -1,0 +1,93 @@
+# LiteKVM Release（占位流水线 / placeholder pipeline）
+#
+# 说明：推送 v* 标签时触发，三平台构建产物 + SHA256 校验和附加到 GitHub Release。
+# 目前为占位实现（continue-on-error=true），产物清单与签名流程将在后续迭代完善。
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: release (${{ matrix.os }} / ${{ matrix.compiler }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true # TODO(LiteKVM): 流水线调稳后移除
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            compiler: msvc
+          - os: macos-latest
+            compiler: clang
+          - os: ubuntu-latest
+            compiler: gcc
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---------- 依赖安装 ----------
+
+      - name: Install dependencies (Windows / MSVC + Qt via aqt)
+        if: runner.os == 'Windows'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          arch: win64_msvc2019_64
+          cache: false
+
+      - name: Install dependencies (macOS / Homebrew)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install cmake ninja qt openssl@3
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix qt)" >> "$GITHUB_ENV"
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+
+      - name: Install dependencies (Linux / APT)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config \
+            qt6-base-dev qt6-tools-dev-tools libqt6svg6-dev \
+            libssl-dev libgl1-mesa-dev \
+            libx11-dev libxtst-dev libxkbfile-dev libxi-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev \
+            libportal-dev libei-dev
+
+      # ---------- 构建 Release ----------
+
+      - name: Configure & build
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
+
+      - name: Collect artifacts & generate SHA256 checksums
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [ -d build/bin ]; then cp -R build/bin/* dist/ || true; fi
+          find build -maxdepth 4 \( -name '*.exe' -o -name '*.app' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' \) -exec cp -R {} dist/ \; || true
+          cd dist
+          find . -type f ! -name 'SHA256SUMS.txt' -print0 | xargs -0 sha256sum > SHA256SUMS.txt || true
+          echo "----- SHA256SUMS.txt -----"
+          cat SHA256SUMS.txt || true
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: litekvm-${{ matrix.os }}
+          path: dist/
+
+      - name: Attach artifacts to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

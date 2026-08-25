@@ -1,0 +1,77 @@
+# LiteKVM CI（占位流水线 / placeholder pipeline）
+#
+# 说明：
+# - 这是脚手架阶段的占位流水线，用于验证 Windows/macOS/Linux 三平台矩阵骨架；
+#   具体依赖版本、缓存策略与测试步骤将在后续迭代中逐步调优。
+# - continue-on-error=true 表示占位阶段允许失败不阻塞分支，调稳后会移除。
+
+name: CI
+
+on:
+  push:
+    branches:
+      - 'litekvm/main'
+      - 'main'
+  pull_request:
+    branches:
+      - 'litekvm/main'
+      - 'main'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build (${{ matrix.os }} / ${{ matrix.compiler }})
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true # TODO(LiteKVM): 流水线调稳后移除
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            compiler: msvc
+          - os: macos-latest
+            compiler: clang
+          - os: ubuntu-latest
+            compiler: gcc
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---------- 依赖安装 ----------
+
+      - name: Install dependencies (Windows / MSVC + Qt via aqt)
+        if: runner.os == 'Windows'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          arch: win64_msvc2019_64
+          cache: false
+
+      - name: Install dependencies (macOS / Homebrew)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install cmake ninja qt openssl@3
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix qt)" >> "$GITHUB_ENV"
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+
+      - name: Install dependencies (Linux / APT)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config \
+            qt6-base-dev qt6-tools-dev-tools libqt6svg6-dev \
+            libssl-dev libgl1-mesa-dev \
+            libx11-dev libxtst-dev libxkbfile-dev libxi-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev \
+            libportal-dev libei-dev
+
+      # ---------- 构建 ----------
+
+      - name: Configure
+        run: cmake -B build
+
+      - name: Build
+        run: cmake --build build
