@@ -84,6 +84,42 @@ if(WIN32)
     RUNTIME DESTINATION ${CMAKE_INSTALL_LIBDIR}
   )
 
+  # LiteKVM (MinGW): ship the GCC runtime next to the binaries.
+  # Neither upstream path does it for a MinGW build:
+  #   * InstallRequiredSystemLibraries (deploy/windows/deploy.cmake) only knows the
+  #     MSVC redistributable,
+  #   * windeployqt is called with --no-compiler-runtime below (upstream's MSVC
+  #     convention, where the CRT comes from the installer).
+  # Result without this block: the packaged app aborts on launch with
+  # 0xC0000135 / "libstdc++-6.dll was not found". Resolve the DLLs through the
+  # compiler driver so they always match the toolchain that built the binaries.
+  if(MINGW)
+    get_filename_component(_mingw_bin_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    foreach(_mingw_dll libgcc_s_seh-1.dll libwinpthread-1.dll libstdc++-6.dll)
+      execute_process(
+        COMMAND "${CMAKE_CXX_COMPILER}" -print-file-name=${_mingw_dll}
+        OUTPUT_VARIABLE _mingw_dll_path
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+      )
+      if(NOT EXISTS "${_mingw_dll_path}" AND EXISTS "${_mingw_bin_dir}/${_mingw_dll}")
+        set(_mingw_dll_path "${_mingw_bin_dir}/${_mingw_dll}")
+      endif()
+      if(EXISTS "${_mingw_dll_path}")
+        install(PROGRAMS "${_mingw_dll_path}" DESTINATION ${CMAKE_INSTALL_LIBDIR})
+        add_custom_command(
+          TARGET ${target} POST_BUILD
+          COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_mingw_dll_path}"
+            "$<TARGET_FILE_DIR:${target}>"
+          COMMENT "LiteKVM: staging MinGW runtime ${_mingw_dll}"
+        )
+      else()
+        message(WARNING "LiteKVM: could not locate MinGW runtime DLL: ${_mingw_dll}")
+      endif()
+    endforeach()
+  endif()
+
   set(QT_DEPENDS_DIR ${CMAKE_BINARY_DIR}/qt-depends)
 
   add_custom_command(
