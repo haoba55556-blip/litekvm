@@ -45,6 +45,9 @@ private:
   void resetAllSettings();
   void updateText();
 
+  /// @brief Fills / refreshes the interface language combo and selects the active language.
+  void updateLanguageCombo();
+
   /// @brief Load all settings.
   void loadFromConfig();
 

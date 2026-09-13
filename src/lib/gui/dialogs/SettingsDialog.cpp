@@ -24,6 +24,26 @@
 
 using namespace deskflow::gui;
 
+namespace {
+/**
+ * @brief The language combo entry as a settings value.
+ * @return 639 name (en, zh_CN ..), or I18N::SystemLanguage for the "follow the system" entry.
+ */
+QString languageCode(const QString &entry)
+{
+  return entry == I18N::systemLanguageName() ? I18N::SystemLanguage : I18N::nativeTo639Name(entry);
+}
+
+/**
+ * @brief The stored interface language, with "no language stored" normalized to I18N::SystemLanguage.
+ */
+QString storedLanguage()
+{
+  const auto stored = Settings::value(Settings::Core::Language).toString();
+  return stored.isEmpty() ? I18N::SystemLanguage : stored;
+}
+} // namespace
+
 SettingsDialog::SettingsDialog(QWidget *parent, const ServerConfig &serverConfig)
     : QDialog(parent),
       ui{std::make_unique<Ui::SettingsDialog>()},
@@ -39,10 +59,10 @@ SettingsDialog::SettingsDialog(QWidget *parent, const ServerConfig &serverConfig
   ui->lineCommandEnter->setEnabled(false);
   ui->lineCommandExit->setEnabled(false);
 
-  // set up the language combo
+  // set up the language combo, "follow the system language" is always offered first
   I18N::reDetectLanguages();
-  ui->comboLanguage->addItems(I18N::detectedLanguages());
-  ui->comboLanguage->setCurrentText(I18N::toNativeName(I18N::currentLanguage()));
+  ui->comboLanguage->addItems(I18N::selectableLanguages());
+  updateLanguageCombo();
 
   updateText();
 
@@ -91,6 +111,7 @@ void SettingsDialog::changeEvent(QEvent *e)
   if (e->type() == QEvent::LanguageChange) {
     ui->retranslateUi(this);
     updateText();
+    updateLanguageCombo();
   }
 }
 
@@ -114,8 +135,7 @@ void SettingsDialog::initConnections() const
   connect(ui->groupLogToFile, &QGroupBox::toggled, this, &SettingsDialog::setLogToFile);
   connect(ui->comboLogLevel, &QComboBox::currentIndexChanged, this, &SettingsDialog::logLevelChanged);
   connect(ui->comboLanguage, &QComboBox::currentTextChanged, this, [](const QString &lang) {
-    const auto shortName = I18N::nativeTo639Name(lang);
-    I18N::setLanguage(shortName);
+    I18N::setLanguage(languageCode(lang));
   });
 
   // Connect modifiable controls
@@ -218,6 +238,25 @@ void SettingsDialog::updateText()
   }
 }
 
+void SettingsDialog::updateLanguageCombo()
+{
+  // The native language names come from the loaded catalogs and never change, but the
+  // "follow the system language" entry is translated so it has to be refreshed.
+  QSignalBlocker blocker(ui->comboLanguage);
+
+  if (ui->comboLanguage->count() != I18N::selectableLanguages().count()) {
+    ui->comboLanguage->clear();
+    ui->comboLanguage->addItems(I18N::selectableLanguages());
+  } else if (ui->comboLanguage->count() > 0) {
+    ui->comboLanguage->setItemText(0, I18N::systemLanguageName());
+  }
+
+  if (I18N::followsSystemLanguage())
+    ui->comboLanguage->setCurrentIndex(0);
+  else
+    ui->comboLanguage->setCurrentText(I18N::toNativeName(I18N::currentLanguage()));
+}
+
 void SettingsDialog::accept()
 {
   Settings::setValue(Settings::Core::Port, ui->sbPort->value());
@@ -235,7 +274,7 @@ void SettingsDialog::accept()
   Settings::setValue(Settings::Gui::CloseToTray, ui->rbCloseToTray->isChecked());
   Settings::setValue(Settings::Gui::SymbolicTrayIcon, ui->rbIconMono->isChecked());
   Settings::setValue(Settings::Security::CheckPeers, ui->cbRequireClientCert->isChecked());
-  Settings::setValue(Settings::Core::Language, I18N::nativeTo639Name(ui->comboLanguage->currentText()));
+  Settings::setValue(Settings::Core::Language, languageCode(ui->comboLanguage->currentText()));
   Settings::setValue(Settings::Log::GuiDebug, ui->cbGuiDebug->isChecked());
   Settings::setValue(Settings::Gui::ShowVersionInTitle, ui->cbShowVersion->isChecked());
   Settings::setValue(Settings::Core::EnableEnterCommand, ui->cbRunEnterCommand->isChecked());
@@ -444,7 +483,7 @@ bool SettingsDialog::isModified() const
       (ui->cbRunExitCommand->isChecked() != Settings::value(Settings::Core::EnableExitCommand).toBool()) ||
       (ui->lineCommandEnter->text() != Settings::value(Settings::Core::ScreenEnterCommand).toString()) ||
       (ui->lineCommandExit->text() != Settings::value(Settings::Core::ScreenExitCommand).toString()) ||
-      (I18N::nativeTo639Name(ui->comboLanguage->currentText()) != Settings::value(Settings::Core::Language).toString());
+      (languageCode(ui->comboLanguage->currentText()) != storedLanguage());
 
   if (!ignoreInterface)
     modified = modified || ui->comboInterface->currentText() != Settings::value(Settings::Core::Interface).toString();
@@ -480,7 +519,7 @@ bool SettingsDialog::isDefault() const
       (ui->lineCommandExit->text() == Settings::defaultValue(Settings::Core::ScreenExitCommand).toString()) &&
       (ui->cbRunEnterCommand->isChecked() == Settings::defaultValue(Settings::Core::EnableEnterCommand).toBool()) &&
       (ui->cbRunExitCommand->isChecked() == Settings::defaultValue(Settings::Core::EnableExitCommand).toBool()) &&
-      (ui->comboLanguage->currentText() == "English")
+      (languageCode(ui->comboLanguage->currentText()) == I18N::SystemLanguage)
   );
 }
 
@@ -524,6 +563,9 @@ void SettingsDialog::resetToDefault()
   ui->lblDebugWarning->setVisible(false);
 
   ui->comboInterface->setCurrentIndex(0);
+
+  // the default interface language is to follow the system locale
+  ui->comboLanguage->setCurrentText(I18N::systemLanguageName());
 
   qDebug() << "reset to default values";
   updateControls();

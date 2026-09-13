@@ -80,35 +80,67 @@ I18N::I18N(QObject *parent) : QObject{parent}
 
   detectLanguages();
 
+  // A stored language means the user pinned one in the settings, an empty value (or
+  // SystemLanguage) means we keep following the system locale.
+  const auto storedLang = Settings::value(Settings::Core::Language).toString();
+  if (storedLang.isEmpty() || storedLang == SystemLanguage) {
+    loadSystemTranslations();
+  } else {
+    m_followSystemLanguage = false;
+    m_currentLang = storedLang;
+    loadTranslations(storedLang);
+  }
+}
+
+void I18N::loadSystemTranslations()
+{
+  m_followSystemLanguage = true;
+
   static const auto s_prefix = QStringLiteral("_");
 
-  if (Settings::value(Settings::Core::Language).toString().isEmpty()) {
-    auto appTranslator = new QTranslator(this);
-    if (appTranslator->load(QLocale(), kAppId, s_prefix, m_appTrPath)) {
-      m_currentTranslations.append(appTranslator);
-      QCoreApplication::installTranslator(appTranslator);
-    }
+  auto appTranslator = new QTranslator(this);
+  if (appTranslator->load(QLocale(), kAppId, s_prefix, m_appTrPath)) {
+    m_currentTranslations.append(appTranslator);
+    QCoreApplication::installTranslator(appTranslator);
 
-    m_currentLang = m_nameMap.key(appTranslator->translate("i18n", "LocalizedName"));
-    if (m_currentLang.isEmpty())
-      m_currentLang = QStringLiteral("en");
+    // QTranslator returns the source text when a message has no translation, that is
+    // the case for english (the plural only catalog), do not use it as a name.
+    const auto nativeName = appTranslator->translate("i18n", "LocalizedName");
+    m_currentLang =
+        m_nameMap.key(nativeName == QStringLiteral("LocalizedName") ? QString() : nativeName, m_currentLang);
+  }
 
-    auto qtTranslator = new QTranslator(this);
-    if (qtTranslator->load(QLocale(), QStringLiteral("qt"), s_prefix, m_qtTrPath)) {
-      m_currentTranslations.append(qtTranslator);
-      QCoreApplication::installTranslator(qtTranslator);
-    }
-  } else {
-    m_currentLang = Settings::value(Settings::Core::Language).toString();
-    const auto translations = m_translations.value(m_currentLang);
-    for (const auto &translation : translations) {
-      auto translator = new QTranslator(this);
-      if (translator->load(translation)) {
-        m_currentTranslations.append(translator);
-        QCoreApplication::installTranslator(translator);
-      }
+  if (m_currentLang.isEmpty())
+    m_currentLang = QStringLiteral("en");
+
+  auto qtTranslator = new QTranslator(this);
+  if (qtTranslator->load(QLocale(), QStringLiteral("qt"), s_prefix, m_qtTrPath)) {
+    m_currentTranslations.append(qtTranslator);
+    QCoreApplication::installTranslator(qtTranslator);
+  }
+}
+
+void I18N::loadTranslations(const QString &langName)
+{
+  for (const auto &translation : m_translations.value(langName)) {
+    if (translation.isEmpty())
+      continue;
+
+    auto translator = new QTranslator(this);
+    if (translator->load(translation)) {
+      m_currentTranslations.append(translator);
+      QCoreApplication::installTranslator(translator);
     }
   }
+}
+
+void I18N::clearTranslations()
+{
+  for (const auto &translation : std::as_const(m_currentTranslations))
+    QCoreApplication::removeTranslator(translation);
+
+  qDeleteAll(m_currentTranslations);
+  m_currentTranslations.clear();
 }
 
 QStringList I18N::detectedLanguages()
@@ -131,35 +163,55 @@ QString I18N::currentLanguage()
   return instance()->m_currentLang;
 }
 
+QString I18N::systemLanguageName()
+{
+  return tr("Follow system");
+}
+
+QStringList I18N::selectableLanguages()
+{
+  QStringList languages{systemLanguageName()};
+  languages.append(detectedLanguages());
+  return languages;
+}
+
+bool I18N::followsSystemLanguage()
+{
+  return instance()->m_followSystemLanguage;
+}
+
 void I18N::setLanguage(const QString &langName)
 {
-  if (langName == instance()->m_currentLang) {
+  auto *self = instance();
+
+  const bool followSystem = langName.isEmpty() || langName == SystemLanguage;
+
+  if (!followSystem && !self->m_translations.contains(langName))
     return;
+
+  if (followSystem) {
+    if (self->m_followSystemLanguage)
+      return;
+    Settings::setValue(Settings::Core::Language, SystemLanguage);
+  } else {
+    if (langName == self->m_currentLang)
+      return;
+    Settings::setValue(Settings::Core::Language, langName);
   }
 
-  if (!instance()->m_translations.contains(langName)) {
-    return;
+  self->clearTranslations();
+
+  if (followSystem) {
+    // forget the pinned language so the system locale is detected again
+    self->m_currentLang.clear();
+    self->loadSystemTranslations();
+  } else {
+    self->m_followSystemLanguage = false;
+    self->m_currentLang = langName;
+    self->loadTranslations(langName);
   }
 
-  instance()->m_currentLang = langName;
-  Settings::setValue(Settings::Core::Language, langName);
-
-  for (const auto &translation : std::as_const(instance()->m_currentTranslations))
-    QCoreApplication::removeTranslator(translation);
-
-  qDeleteAll(instance()->m_currentTranslations);
-  instance()->m_currentTranslations.clear();
-
-  const auto translations = instance()->m_translations.value(langName);
-  for (const auto &translation : translations) {
-    auto translator = new QTranslator(instance());
-    if (translator->load(translation)) {
-      instance()->m_currentTranslations.append(translator);
-      QCoreApplication::installTranslator(translator);
-    }
-  }
-
-  Q_EMIT instance()->languageChanged(langName);
+  Q_EMIT self->languageChanged(self->m_currentLang);
 }
 
 void I18N::reDetectLanguages()
@@ -186,7 +238,9 @@ void I18N::detectLanguages()
     //: Replace with your Language name
     //: This is a required string
     QString nativeLang = translator.translate("i18n", "LocalizedName");
-    if (nativeLang.isEmpty())
+    // QTranslator hands back the source text when the message has no translation,
+    // which is the case for the english (plural only) catalog.
+    if (nativeLang.isEmpty() || nativeLang == QStringLiteral("LocalizedName"))
       nativeLang = QStringLiteral("English");
 
     QString shortCode;

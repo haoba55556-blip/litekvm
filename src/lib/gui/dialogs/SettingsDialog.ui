@@ -69,12 +69,16 @@
             </sizepolicy>
            </property>
            <property name="text">
-            <string>Language</string>
+            <string>Interface language</string>
            </property>
           </widget>
          </item>
          <item>
-          <widget class="QComboBox" name="comboLanguage"/>
+          <widget class="QComboBox" name="comboLanguage">
+           <property name="toolTip">
+            <string>Changes the interface language right away. &quot;Follow system&quot; uses the language of your operating system.</string>
+           </property>
+          </widget>
          </item>
         </layout>
        </item>

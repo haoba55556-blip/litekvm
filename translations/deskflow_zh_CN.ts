@@ -1142,6 +1142,14 @@ Enabling this setting will disable the server config GUI.</source>
         <translation type="unfinished">始终以系统身份运行 (在登录屏幕和 UAC 下工作)</translation>
     </message>
     <message>
+        <source>Interface language</source>
+        <translation>界面语言</translation>
+    </message>
+    <message>
+        <source>Changes the interface language right away. &quot;Follow system&quot; uses the language of your operating system.</source>
+        <translation>立即切换界面语言。选择「跟随系统」时使用操作系统的语言。</translation>
+    </message>
+    <message>
         <source>Language</source>
         <translation>语言</translation>
     </message>
@@ -1451,6 +1459,13 @@ Enabling this setting will disable the server config GUI.</source>
     <message>
         <source>❌ %1</source>
         <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>I18N</name>
+    <message>
+        <source>Follow system</source>
+        <translation>跟随系统</translation>
     </message>
 </context>
 <context>
