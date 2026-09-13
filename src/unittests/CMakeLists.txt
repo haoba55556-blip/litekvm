@@ -34,6 +34,12 @@ function(create_test)
   endif()
 
   add_executable(${m_NAME} ${m_SOURCE})
+
+  # LiteKVM: stage the GCC runtime next to the test binary as well. Without it
+  # every test aborts with 0xC0000135 on a MinGW build (helper defined in the
+  # top-level CMakeLists.txt).
+  litekvm_stage_mingw_runtime(${m_NAME})
+
   if(MINGW)
     # LiteKVM: wrap libs in --start-group so circular deps between static
     # libs (arch<->base) resolve on ld; MSVC doesn't need/understand this

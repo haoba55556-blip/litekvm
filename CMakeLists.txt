@@ -244,6 +244,52 @@ else()
   set(CMAKE_INSTALL_I18N_DIR ${CMAKE_INSTALL_DATADIR}/${CMAKE_PROJECT_NAME}/translations)
 endif()
 
+# LiteKVM: MinGW builds must ship the GCC runtime (libgcc/libstdc++/libwinpthread)
+# next to every executable. Upstream only handles the MSVC CRT
+# (InstallRequiredSystemLibraries) and deliberately passes --no-compiler-runtime to
+# windeployqt, so on a MinGW build nothing copies the GCC runtime and both the
+# packaged app and the unit tests abort on launch with 0xC0000135
+# ("libstdc++-6.dll was not found"). Resolve the DLLs through the compiler driver
+# so they always match the toolchain that produced the binaries.
+set(LITEKVM_MINGW_RUNTIME_DLLS "" CACHE INTERNAL "MinGW runtime DLLs staged next to executables")
+if(MINGW)
+  get_filename_component(_mingw_bin_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+  foreach(_mingw_dll libgcc_s_seh-1.dll libwinpthread-1.dll libstdc++-6.dll)
+    execute_process(
+      COMMAND "${CMAKE_CXX_COMPILER}" -print-file-name=${_mingw_dll}
+      OUTPUT_VARIABLE _mingw_dll_path
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET
+    )
+    if(NOT EXISTS "${_mingw_dll_path}" AND EXISTS "${_mingw_bin_dir}/${_mingw_dll}")
+      set(_mingw_dll_path "${_mingw_bin_dir}/${_mingw_dll}")
+    endif()
+    if(EXISTS "${_mingw_dll_path}")
+      list(APPEND LITEKVM_MINGW_RUNTIME_DLLS "${_mingw_dll_path}")
+    else()
+      message(WARNING "LiteKVM: could not locate MinGW runtime DLL: ${_mingw_dll}")
+    endif()
+  endforeach()
+  set(LITEKVM_MINGW_RUNTIME_DLLS "${LITEKVM_MINGW_RUNTIME_DLLS}"
+      CACHE INTERNAL "MinGW runtime DLLs staged next to executables" FORCE)
+  message(STATUS "LiteKVM: MinGW runtime DLLs: ${LITEKVM_MINGW_RUNTIME_DLLS}")
+endif()
+
+# Copy the MinGW runtime next to <target>'s executable in the build tree.
+function(litekvm_stage_mingw_runtime target)
+  foreach(_mingw_dll ${LITEKVM_MINGW_RUNTIME_DLLS})
+    add_custom_command(
+      TARGET ${target} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_mingw_dll}" "$<TARGET_FILE_DIR:${target}>"
+      COMMENT "LiteKVM: staging MinGW runtime"
+    )
+  endforeach()
+endfunction()
+
+if(MINGW AND LITEKVM_MINGW_RUNTIME_DLLS)
+  install(PROGRAMS ${LITEKVM_MINGW_RUNTIME_DLLS} DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+
 add_subdirectory(docs)
 
 # build translations before source, I18N unit tests fail if they are missing
