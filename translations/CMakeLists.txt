@@ -31,6 +31,17 @@ add_custom_target(app_translations ALL DEPENDS ${TRS})
 if (NOT BUILD_OSX_BUNDLE)
   # install our translations
   install(FILES ${TRS} DESTINATION ${CMAKE_INSTALL_I18N_DIR})
+
+  # LiteKVM: also stage the compiled .qm files next to the binaries in the build
+  # tree. The install() above only reaches the CPack/install output, so a bundle
+  # zipped straight from build/bin (which is what our Windows package is) used to
+  # ship without our own translations at all -- a Chinese system then showed the
+  # whole UI in English, while only Qt's own qt_*.qm were present.
+  add_custom_command(
+    TARGET app_translations POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/translations"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${TRS} "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/translations"
+  )
 else()
   #when making the bundle copy our translation into the bundle
   set(BUNDLE_TR_DIR $<TARGET_BUNDLE_CONTENT_DIR:${CMAKE_PROJECT_PROPER_NAME}>/Resources/translations)
