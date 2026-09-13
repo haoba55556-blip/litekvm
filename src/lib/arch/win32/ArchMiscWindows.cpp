@@ -33,13 +33,35 @@ void errorMessageBox(const char *message, const char *title = "Fatal Error");
 
 std::string getBinaryName()
 {
-  std::array<char, MAX_PATH> buffer;
-  if (!GetModuleFileNameA(nullptr, buffer.data(), MAX_PATH)) {
+  // LiteKVM: must use the WIDE Windows API here. GetModuleFileNameA returns the
+  // path in the ANSI code page (e.g. GBK on Chinese Windows), while libstdc++
+  // interprets std::filesystem::path(const char*) as UTF-8 — for any non-ASCII
+  // install path (e.g. "C:\Users\好好\...") the conversion throws
+  // "Cannot convert character sequence: Illegal byte sequence". Because
+  // s_binaryName below is initialized statically, that exception escaped before
+  // main() and aborted the whole process, so the app died on launch with no
+  // output at all.
+  std::array<wchar_t, MAX_PATH> buffer;
+  if (!GetModuleFileNameW(nullptr, buffer.data(), MAX_PATH)) {
     errorMessageBox("Failed to get binary name.");
     abort();
   }
 
-  return std::filesystem::path(buffer.data()).filename().string();
+  // path(wchar_t*) performs no encoding guesswork, so this is always safe.
+  const std::wstring fileName = std::filesystem::path(buffer.data()).filename().wstring();
+
+  // Hand back UTF-8 so the value is encoding-independent (log prefix only).
+  const int size = ::WideCharToMultiByte(
+      CP_UTF8, 0, fileName.c_str(), static_cast<int>(fileName.size()), nullptr, 0, nullptr, nullptr
+  );
+  if (size <= 0) {
+    return {};
+  }
+  std::string utf8(static_cast<std::size_t>(size), '\0');
+  ::WideCharToMultiByte(
+      CP_UTF8, 0, fileName.c_str(), static_cast<int>(fileName.size()), utf8.data(), size, nullptr, nullptr
+  );
+  return utf8;
 }
 
 void errorMessageBox(const char *message, const char *title)
