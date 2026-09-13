@@ -15,6 +15,11 @@
 
 #include "common/Constants.h"
 
+// LiteKVM: exposes applyLiteKvmTheme() / liteKvmThemeSource() — the dark-theme
+// entry point (src/lib/gui/ThemeLoader.cpp). Re-exported here so callers that
+// already include StyleUtils.h (the GUI entry point does) need no extra include.
+#include "ThemeLoader.h"
+
 namespace deskflow::gui {
 
 /**

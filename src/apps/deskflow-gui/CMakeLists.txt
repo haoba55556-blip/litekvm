@@ -41,6 +41,17 @@ add_executable(${target} WIN32 MACOSX_BUNDLE
   deskflow-gui.cpp
 )
 
+# LiteKVM: package the dark-theme stylesheet into the binary as a Qt resource.
+# BASE makes the alias the bare file name, PREFIX places it at
+# ":/res/litekvm-theme-dark.qss" — the path ThemeLoader.cpp looks for first
+# (it falls back to the source tree for un-packaged dev builds).
+# No install() rule is needed: the .qss never exists as a runtime file.
+qt_add_resources(${target} "litekvm_theme"
+  PREFIX "/res"
+  BASE "${CMAKE_SOURCE_DIR}/src/apps/res"
+  FILES "${CMAKE_SOURCE_DIR}/src/apps/res/litekvm-theme-dark.qss"
+)
+
 # LiteKVM: wrap in --start-group for MinGW so circular static-lib deps
 # (client<->net etc.) resolve on ld; MSVC doesn't need/understand this
 if(MINGW)

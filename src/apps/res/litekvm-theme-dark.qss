@@ -1,0 +1,847 @@
+/* =============================================================================
+ * LiteKVM — dark theme stylesheet
+ * SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+ * SPDX-License-Identifier: GPL-2.0
+ * -----------------------------------------------------------------------------
+ * File     : src/apps/res/litekvm-theme-dark.qss
+ * Loaded by: deskflow::gui::applyLiteKvmTheme()  (src/lib/gui/ThemeLoader.cpp)
+ * Tokens   : see litekvm-theme-tokens.md (colors / spacing / radius / type)
+ * Style    : Linear / Vercel style console UI — flat layered surfaces,
+ *            high contrast, 6-8px radii, one restrained accent (indigo).
+ *
+ * Layer model
+ *   canvas  #0D0F12   window background
+ *   surface #14171C   cards, menus, popups, headers
+ *   sunken  #0A0C0E   inputs, log well, tables
+ *   hover   #1B2027   hover fill      active #232A33 pressed fill
+ *   accent  #5E6AD2   primary action + focus ring (tint fill #1E2440)
+ *
+ * Notes
+ *  - No gradients / no images: every rule is pure QSS box-model drawing.
+ *  - Sub-control *glyphs* that QSS cannot recolour (combo drop-down arrow,
+ *    spin-box arrows, native check marks we do draw ourselves) are intentionally
+ *    left to the Qt style, which is driven by the dark QPalette installed by
+ *    ThemeLoader.cpp. Do NOT add ::drop-down / ::up-button rules here without
+ *    supplying an `image:` — that makes the glyphs disappear.
+ *  - QSS sub-control box drawing is per-widget: keep ::indicator rules close to
+ *    their parent widget rules.
+ * ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+ * 1. Base — typography (CJK first: the primary audience is Chinese Windows)
+ * ------------------------------------------------------------------------ */
+QWidget {
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", "Inter",
+                 "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+    font-size: 13px;
+    color: #E7EAEE;
+}
+
+QMainWindow, QDialog {
+    background-color: #0D0F12;
+}
+
+QMainWindow::separator {
+    background-color: #1F242B;
+    width: 1px;
+    height: 1px;
+}
+
+/* NOTE: deliberately no `QLabel { background: ... }` rule here — the validator
+ * error label (validators/ValidationError.cpp) paints its red band from the
+ * QPalette + autoFillBackground; a QSS background rule on QLabel would replace
+ * that fill and the red band would vanish. Keep the base QWidget rule free of
+ * background/border properties for the same reason. */
+
+/* ---------------------------------------------------------------------------
+ * 2. Menu bar + menus
+ * ------------------------------------------------------------------------ */
+QMenuBar {
+    background-color: #0D0F12;
+    border-bottom: 1px solid #1F242B;
+    padding: 2px 6px;
+    color: #A2ABB8;
+}
+
+QMenuBar::item {
+    background: transparent;
+    color: #A2ABB8;
+    padding: 5px 10px;
+    border-radius: 6px;
+}
+
+QMenuBar::item:selected {
+    background-color: #1B2027;
+    color: #E7EAEE;
+}
+
+QMenuBar::item:pressed {
+    background-color: #232A33;
+    color: #E7EAEE;
+}
+
+QMenu {
+    background-color: #14171C;
+    border: 1px solid #2A3038;
+    border-radius: 8px;
+    padding: 5px;
+    color: #E7EAEE;
+}
+
+QMenu::item {
+    background: transparent;
+    padding: 6px 28px 6px 12px;
+    border-radius: 6px;
+}
+
+QMenu::item:selected {
+    background-color: #232A4D;
+    color: #FFFFFF;
+}
+
+QMenu::item:disabled {
+    color: #6E7783;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: #1F242B;
+    margin: 4px 8px;
+}
+
+QMenu::icon {
+    padding-left: 8px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. Buttons
+ * ------------------------------------------------------------------------ */
+QPushButton {
+    background-color: #1B2027;
+    color: #E7EAEE;
+    border: 1px solid #2A3038;
+    border-radius: 6px;
+    padding: 4px 14px;
+    min-height: 20px;
+    font-weight: 500;
+}
+
+QPushButton:hover {
+    background-color: #232A33;
+    border-color: #3A424C;
+}
+
+QPushButton:pressed {
+    background-color: #14171C;
+    border-color: #3A424C;
+}
+
+QPushButton:checked {
+    background-color: #232A4D;
+    border-color: #5E6AD2;
+}
+
+QPushButton:focus {
+    border-color: #5E6AD2;
+}
+
+QPushButton:disabled {
+    background-color: #14171C;
+    color: #6E7783;
+    border-color: #1F242B;
+}
+
+/* Default button of a dialog (OK / Connect …) = the accent action. */
+QPushButton:default {
+    background-color: #5E6AD2;
+    border-color: #6E79DB;
+    color: #FFFFFF;
+    font-weight: 600;
+}
+
+QPushButton:default:hover {
+    background-color: #636DD4;   /* keeps #FFFFFF text at 4.5:1 (AA) */
+    border-color: #7C86E0;
+}
+
+QPushButton:default:pressed {
+    background-color: #4C57BF;
+    border-color: #4C57BF;
+}
+
+QPushButton:default:disabled {
+    background-color: #1B2027;
+    color: #6E7783;
+    border-color: #2A3038;
+}
+
+/* Flat icon buttons (dock title bar, search widget, inline edit buttons).
+ * padding must stay 0: these are setFixedSize(icon + 2px) in C++. */
+QPushButton[flat="true"] {
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 0;
+}
+
+QPushButton[flat="true"]:hover {
+    background-color: #232A33;
+}
+
+QPushButton[flat="true"]:pressed,
+QPushButton[flat="true"]:checked {
+    background-color: #2A3038;
+}
+
+QPushButton[flat="true"]:disabled {
+    background: transparent;
+}
+
+/* Square 32x32 icon-only buttons declared in MainWindow.ui. */
+QPushButton#btnSaveServerConfig,
+QPushButton#btnRestartCore,
+QPushButton#btnEditName {
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 0;
+}
+
+QPushButton#btnSaveServerConfig:hover,
+QPushButton#btnRestartCore:hover,
+QPushButton#btnEditName:hover {
+    background-color: #232A33;
+}
+
+QPushButton#btnSaveServerConfig:pressed,
+QPushButton#btnRestartCore:pressed,
+QPushButton#btnEditName:pressed {
+    background-color: #2A3038;
+}
+
+QPushButton#btnSaveServerConfig:disabled,
+QPushButton#btnRestartCore:disabled,
+QPushButton#btnEditName:disabled {
+    background: transparent;
+}
+
+/* The primary call to action: 开始 / 停止 (MainWindow.ui btnToggleCore). */
+QPushButton#btnToggleCore {
+    background-color: #5E6AD2;
+    border: 1px solid #6E79DB;
+    border-radius: 6px;
+    color: #FFFFFF;
+    padding: 4px 22px;
+    font-weight: 600;
+}
+
+QPushButton#btnToggleCore:hover {
+    background-color: #636DD4;
+    border-color: #7C86E0;
+}
+
+QPushButton#btnToggleCore:pressed {
+    background-color: #4C57BF;
+    border-color: #4C57BF;
+}
+
+QPushButton#btnToggleCore:focus {
+    border-color: #8B95F0;
+}
+
+QPushButton#btnToggleCore:disabled {
+    background-color: #1B2027;
+    border-color: #2A3038;
+    color: #6E7783;
+}
+
+/* Secondary dialog-level actions in the main window. */
+QPushButton#btnConfigureServer,
+QPushButton#btnConfigureClient {
+    background-color: #1B2027;
+    border: 1px solid #2A3038;
+    border-radius: 6px;
+    padding: 4px 16px;
+    min-height: 20px;
+}
+
+QPushButton#btnConfigureServer:hover,
+QPushButton#btnConfigureClient:hover {
+    background-color: #232A33;
+    border-color: #3A424C;
+}
+
+QDialogButtonBox QPushButton {
+    min-width: 84px;
+}
+
+QToolButton {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 4px;
+    color: #A2ABB8;
+}
+
+QToolButton:hover {
+    background-color: #232A33;
+    border-color: #2A3038;
+    color: #E7EAEE;
+}
+
+QToolButton:checked,
+QToolButton:pressed {
+    background-color: #232A4D;
+    border-color: #5E6AD2;
+    color: #E7EAEE;
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. Text inputs and editors
+ * ------------------------------------------------------------------------ */
+QLineEdit {
+    background-color: #0A0C0E;
+    border: 1px solid #2A3038;
+    border-radius: 6px;
+    color: #E7EAEE;
+    padding: 0 8px;          /* no vertical padding: keeps 20px-tall docks usable */
+    min-height: 18px;
+    selection-background-color: #5E6AD2;
+    selection-color: #FFFFFF;
+}
+
+QLineEdit:hover {
+    border-color: #3A424C;
+}
+
+QLineEdit:focus {
+    border-color: #5E6AD2;
+}
+
+QLineEdit:read-only {
+    background-color: #101317;
+    color: #A2ABB8;
+}
+
+QLineEdit:disabled {
+    background-color: #14171C;
+    border-color: #1F242B;
+    color: #6E7783;
+}
+
+QLineEdit[echoMode="2"] {
+    lineedit-password-character: 9679;
+}
+
+/* Computer name row + "Connect to" hostname field (MainWindow.ui). */
+QLineEdit#lineEditName,
+QLineEdit#lineHostname {
+    background-color: #0A0C0E;
+    border: 1px solid #2A3038;
+    border-radius: 6px;
+    padding: 0 8px;
+}
+
+QLineEdit#lineEditName:focus,
+QLineEdit#lineHostname:focus {
+    background-color: #0D0F12;
+    border-color: #5E6AD2;
+}
+
+/* Search box lives in the log dock title bar and is height-capped in C++;
+ * keep it one point smaller so it never clips. */
+QDockWidget QLineEdit {
+    font-size: 12px;
+}
+
+/* Combo boxes: right padding reserves the style-drawn drop-down arrow. */
+QComboBox {
+    background-color: #0A0C0E;
+    border: 1px solid #2A3038;
+    border-radius: 6px;
+    color: #E7EAEE;
+    padding: 3px 24px 3px 8px;
+    min-height: 18px;
+}
+
+QComboBox:hover {
+    border-color: #3A424C;
+}
+
+QComboBox:focus,
+QComboBox:on {
+    border-color: #5E6AD2;
+}
+
+QComboBox:disabled {
+    background-color: #14171C;
+    border-color: #1F242B;
+    color: #6E7783;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #14171C;
+    border: 1px solid #2A3038;
+    border-radius: 6px;
+    padding: 4px;
+    outline: 0;
+    selection-background-color: #232A4D;
+    selection-color: #FFFFFF;
+}
+
+QSpinBox, QDoubleSpinBox {
+    background-color: #0A0C0E;
+    border: 1px solid #2A3038;
+    border-radius: 6px;
+    color: #E7EAEE;
+    padding: 3px 20px 3px 8px;   /* reserve the style-drawn arrow column */
+    min-height: 18px;
+    selection-background-color: #5E6AD2;
+    selection-color: #FFFFFF;
+}
+
+QSpinBox:focus, QDoubleSpinBox:focus {
+    border-color: #5E6AD2;
+}
+
+QSpinBox:disabled, QDoubleSpinBox:disabled {
+    background-color: #14171C;
+    border-color: #1F242B;
+    color: #6E7783;
+}
+
+/* Log panel / help text. Monospace stack keeps Qt's fallback chain for CJK. */
+QPlainTextEdit, QTextEdit, QTextBrowser {
+    background-color: #0A0C0E;
+    border: 1px solid #1F242B;
+    border-radius: 6px;
+    color: #C9D1D9;
+    padding: 6px 8px;
+    selection-background-color: #232A4D;
+    selection-color: #FFFFFF;
+}
+
+QPlainTextEdit {
+    font-family: "Cascadia Mono", "Consolas", "Hack", "Microsoft YaHei UI", monospace;
+    font-size: 12px;
+}
+
+QTextBrowser {
+    font-size: 13px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 5. Check boxes, radio buttons, mode selection cards
+ * ------------------------------------------------------------------------ */
+QCheckBox, QRadioButton {
+    background: transparent;
+    color: #E7EAEE;
+    spacing: 8px;
+}
+
+QCheckBox:disabled, QRadioButton:disabled {
+    color: #6E7783;
+}
+
+QCheckBox::indicator, QRadioButton::indicator {
+    width: 16px;
+    height: 16px;
+}
+
+QCheckBox::indicator {
+    background-color: #0A0C0E;
+    border: 1px solid #3A424C;
+    border-radius: 4px;
+}
+
+QCheckBox::indicator:hover {
+    border-color: #5E6AD2;
+}
+
+/* Flat filled box = checked. (A tick glyph needs an SVG asset + `image:`;
+ * QSS cannot draw one — see litekvm-theme-tokens.md.) */
+QCheckBox::indicator:checked,
+QCheckBox::indicator:indeterminate {
+    background-color: #5E6AD2;
+    border-color: #5E6AD2;
+}
+
+QCheckBox::indicator:checked:hover {
+    background-color: #636DD4;
+    border-color: #636DD4;
+}
+
+QCheckBox::indicator:disabled {
+    background-color: #14171C;
+    border-color: #2A3038;
+}
+
+QRadioButton::indicator {
+    background-color: #0A0C0E;
+    border: 1px solid #3A424C;
+    border-radius: 8px;
+}
+
+QRadioButton::indicator:hover {
+    border-color: #5E6AD2;
+}
+
+/* Thick accent ring: reads as "selected" without needing a dot image. */
+QRadioButton::indicator:checked {
+    background-color: #0D0F12;
+    border: 5px solid #5E6AD2;
+}
+
+QRadioButton::indicator:disabled {
+    background-color: #14171C;
+    border-color: #2A3038;
+}
+
+/* Server / client mode cards (MainWindow.ui rbModeServer / rbModeClient). */
+QRadioButton#rbModeServer,
+QRadioButton#rbModeClient {
+    background-color: #14171C;
+    border: 1px solid #1F242B;
+    border-radius: 8px;
+    color: #A2ABB8;
+    padding: 8px 12px 8px 10px;
+    spacing: 10px;
+}
+
+QRadioButton#rbModeServer:hover,
+QRadioButton#rbModeClient:hover {
+    background-color: #1B2027;
+    border-color: #2A3038;
+    color: #E7EAEE;
+}
+
+QRadioButton#rbModeServer:checked,
+QRadioButton#rbModeClient:checked {
+    background-color: #1E2440;
+    border-color: #5E6AD2;
+    color: #E7EAEE;
+}
+
+/* ---------------------------------------------------------------------------
+ * 6. Containers: group boxes, tabs, docks, splitters
+ * ------------------------------------------------------------------------ */
+QGroupBox {
+    background-color: #14171C;
+    border: 1px solid #1F242B;
+    border-radius: 8px;
+    margin-top: 14px;
+    padding: 6px;
+    font-weight: 600;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 10px;
+    padding: 0 4px;
+    color: #A2ABB8;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* The mode-selection card has an empty title: drop the title gutter. */
+QGroupBox#groupBox {
+    margin-top: 0;
+    padding: 6px 10px;
+}
+
+QTabWidget::pane {
+    background-color: #14171C;
+    border: 1px solid #1F242B;
+    border-radius: 8px;
+    top: -1px;
+}
+
+QTabBar::tab {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    color: #A2ABB8;
+    padding: 6px 12px;
+    margin-right: 4px;
+}
+
+QTabBar::tab:hover {
+    background-color: #1B2027;
+    color: #E7EAEE;
+}
+
+QTabBar::tab:selected {
+    background-color: #232A4D;
+    border-color: #5E6AD2;
+    color: #E7EAEE;
+}
+
+QTabBar::tab:disabled {
+    color: #6E7783;
+}
+
+QDockWidget {
+    color: #A2ABB8;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QDockWidget::title {
+    background-color: #0D0F12;
+    border-top: 1px solid #1F242B;
+    padding: 6px 8px;
+}
+
+QSplitter::handle {
+    background-color: #1F242B;
+}
+
+QSplitter::handle:horizontal {
+    width: 1px;
+}
+
+QSplitter::handle:vertical {
+    height: 1px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 7. Item views: nearby-computer list, screen grid, settings lists
+ * ------------------------------------------------------------------------ */
+QTableWidget, QTableView {
+    background-color: #0A0C0E;
+    alternate-background-color: #101317;
+    border: 1px solid #1F242B;
+    border-radius: 8px;
+    color: #E7EAEE;
+    gridline-color: #1F242B;
+    outline: 0;
+    selection-background-color: #232A4D;
+    selection-color: #FFFFFF;
+}
+
+QTableWidget::item, QTableView::item {
+    border: none;
+    padding: 6px 8px;
+}
+
+QTableWidget::item:hover, QTableView::item:hover {
+    background-color: #1B2027;
+}
+
+QTableWidget::item:selected, QTableView::item:selected {
+    background-color: #232A4D;
+    color: #FFFFFF;
+}
+
+QHeaderView {
+    background: transparent;
+    border: none;
+}
+
+QHeaderView::section {
+    background-color: #14171C;
+    border: none;
+    border-bottom: 1px solid #1F242B;
+    border-right: 1px solid #1F242B;
+    color: #A2ABB8;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 8px;
+}
+
+QTableCornerButton::section {
+    background-color: #14171C;
+    border: none;
+}
+
+QListWidget, QListView, QTreeWidget, QTreeView {
+    background-color: #0A0C0E;
+    border: 1px solid #1F242B;
+    border-radius: 8px;
+    color: #E7EAEE;
+    outline: 0;
+    selection-background-color: #232A4D;
+    selection-color: #FFFFFF;
+}
+
+QListWidget::item, QListView::item, QTreeWidget::item {
+    border-radius: 6px;
+    padding: 6px 8px;
+}
+
+QListWidget::item:hover, QListView::item:hover {
+    background-color: #1B2027;
+}
+
+QListWidget::item:selected, QListView::item:selected {
+    background-color: #232A4D;
+    color: #FFFFFF;
+}
+
+QTreeView::branch {
+    background: transparent;
+}
+
+/* Scroll bars: thin, unobtrusive, no arrow buttons. */
+QScrollBar:vertical {
+    background: transparent;
+    width: 12px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #2A3038;
+    border-radius: 6px;
+    min-height: 28px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #3A424C;
+}
+
+QScrollBar:horizontal {
+    background: transparent;
+    height: 12px;
+    margin: 0;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #2A3038;
+    border-radius: 6px;
+    min-width: 28px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: #3A424C;
+}
+
+QScrollBar::add-line, QScrollBar::sub-line {
+    background: none;
+    border: none;
+    height: 0;
+    width: 0;
+}
+
+QScrollBar::add-page, QScrollBar::sub-page {
+    background: none;
+}
+
+QProgressBar {
+    background-color: #0A0C0E;
+    border: 1px solid #2A3038;
+    border-radius: 6px;
+    color: #E7EAEE;
+    height: 8px;
+    text-align: center;
+}
+
+QProgressBar::chunk {
+    background-color: #5E6AD2;
+    border-radius: 5px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 8. Status bar (connection state, security level, update hint)
+ * ------------------------------------------------------------------------ */
+QStatusBar {
+    background-color: #0D0F12;
+    border-top: 1px solid #1F242B;
+    color: #A2ABB8;
+    font-size: 12px;
+}
+
+QStatusBar::item {
+    border: none;
+}
+
+QStatusBar QLabel {
+    color: #A2ABB8;
+    font-size: 12px;
+}
+
+QStatusBar QPushButton {
+    padding: 2px 8px;
+    min-height: 16px;
+    font-size: 12px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 9. Main window specifics — 附近电脑 panel (NearbyPanel, promoted widget)
+ * ------------------------------------------------------------------------ */
+QWidget#nearbyPanel {
+    background: transparent;
+}
+
+QWidget#nearbyPanel QLabel {
+    color: #A2ABB8;
+}
+
+QWidget#nearbyPanel QTableWidget {
+    background-color: #0A0C0E;
+    border: 1px solid #1F242B;
+    border-radius: 8px;
+}
+
+QWidget#nearbyPanel QPushButton {
+    padding: 4px 16px;
+    min-height: 20px;
+}
+
+/* Computer name heading + secondary labels in the header row. */
+QLabel#lblComputerName {
+    color: #E7EAEE;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+QLabel#labelComputerName,
+QLabel#m_pLabelServerName {
+    color: #A2ABB8;
+}
+
+QLabel#lblIpAddresses {
+    color: #7A8494;
+    font-size: 12px;
+}
+
+/* "You must select a mode" — intentionally a soft warning. */
+QLabel#lblNoMode {
+    color: #D29922;
+    font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------
+ * 10. Dialogs, message boxes, tooltips
+ * ------------------------------------------------------------------------ */
+QMessageBox, QInputDialog {
+    background-color: #14171C;
+}
+
+QMessageBox QLabel {
+    color: #E7EAEE;
+}
+
+/* Qt's internal object names inside QMessageBox (cosmetic if Qt renames them). */
+QLabel#qt_msgbox_label {
+    color: #E7EAEE;
+    font-weight: 600;
+}
+
+QLabel#qt_msgbox_informativelabel {
+    color: #A2ABB8;
+    font-size: 12px;
+}
+
+QMessageBox QPushButton {
+    min-width: 84px;
+}
+
+QToolTip {
+    background-color: #1B2027;
+    border: 1px solid #2A3038;
+    border-radius: 6px;
+    color: #E7EAEE;
+    font-size: 12px;
+    padding: 6px 8px;
+}

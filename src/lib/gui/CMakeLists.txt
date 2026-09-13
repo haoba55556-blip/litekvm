@@ -39,6 +39,8 @@ add_library(${target} STATIC
   ScreenSetupModel.cpp
   ScreenSetupModel.h
   StyleUtils.h
+  ThemeLoader.cpp
+  ThemeLoader.h
   TlsUtility.cpp
   TlsUtility.h
   VersionChecker.cpp

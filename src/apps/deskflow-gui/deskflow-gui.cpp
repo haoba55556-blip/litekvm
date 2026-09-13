@@ -126,6 +126,8 @@ int main(int argc, char *argv[])
   // Sets the fallback icon path and fallback theme
   updateIconTheme();
 
+  applyLiteKvmTheme(); // LiteKVM: dark theme (QSS + palette + icon theme)
+
   qInstallMessageHandler(deskflow::gui::messages::messageHandler);
   qInfo("%s v%s", kAppName, kDisplayVersion);
 
