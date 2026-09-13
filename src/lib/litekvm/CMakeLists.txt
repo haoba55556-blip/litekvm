@@ -21,6 +21,10 @@ add_library(litekvm STATIC
   MdnsAdvertiser.h
   PairingService.cpp
   PairingService.h
+  ClipFileChunk.cpp
+  ClipFileChunk.h
+  ClipFileTransfer.cpp
+  ClipFileTransfer.h
 )
 
 target_include_directories(litekvm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

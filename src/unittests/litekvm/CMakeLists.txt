@@ -21,3 +21,10 @@ create_test(
   SOURCE LayoutSyncTests.cpp
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/litekvm"
 )
+
+create_test(
+  NAME ClipFileTransferTests
+  DEPENDS litekvm
+  SOURCE ClipFileTransferTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/litekvm"
+)
