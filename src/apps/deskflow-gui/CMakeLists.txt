@@ -52,6 +52,24 @@ qt_add_resources(${target} "litekvm_theme"
   FILES "${CMAKE_SOURCE_DIR}/src/apps/res/litekvm-theme-dark.qss"
 )
 
+# LiteKVM: ship the stylesheet as a plain file next to the binary as well.
+# The embedded-resource path above is not reliable in every configuration (a
+# package built from build/bin could end up in the light default look), and a
+# plain file also lets users tweak the theme without a rebuild. ThemeLoader
+# resolves candidates in order: :/res/... , then <exedir>/litekvm-theme-dark.qss.
+add_custom_command(
+  TARGET ${target} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_SOURCE_DIR}/src/apps/res/litekvm-theme-dark.qss"
+    "$<TARGET_FILE_DIR:${target}>/litekvm-theme-dark.qss"
+  COMMENT "LiteKVM: staging theme stylesheet"
+)
+
+install(
+  FILES "${CMAKE_SOURCE_DIR}/src/apps/res/litekvm-theme-dark.qss"
+  DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
 # LiteKVM: wrap in --start-group for MinGW so circular static-lib deps
 # (client<->net etc.) resolve on ld; MSVC doesn't need/understand this
 if(MINGW)
