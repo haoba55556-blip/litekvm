@@ -54,6 +54,15 @@ public:
   QMimeData *mimeData(const QModelIndexList &indexes) const override;
   bool isFull() const;
 
+  /**
+   * @brief 找出「已勾选双侧切入但当前布局下无效」的客户端屏名。
+   *
+   * 双侧切入要求该客户端在网格里与服务器同行且左右相邻（服务器用 left/right 同时指向它）。
+   * 勾了但摆错位置（例如放在服务器上方/下方）时不会生成任何 links，这里用于在布局对话框
+   * 里给出提示，避免用户以为设置没生效。
+   */
+  QStringList misconfiguredDualSideScreens() const;
+
 Q_SIGNALS:
   void screensChanged();
 

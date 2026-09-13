@@ -80,6 +80,10 @@ private:
     return m_Hotkeys;
   }
   int adjacentScreenIndex(int idx, int deltaColumn, int deltaRow) const;
+  /// @brief 求 (idx, 方向) 的有效邻居：优先网格相邻，其次双侧切入镜像；无则 -1。
+  int neighbourIndex(int idx, int deltaColumn, int deltaRow) const;
+  /// @brief 双侧切入镜像：当前屏是服务器时，用「反方向」的相邻屏补上本方向。无则 -1。
+  int dualSideNeighbourIndex(int idx, int deltaColumn, int deltaRow) const;
   bool findScreenName(const QString &name, int &index);
   bool fixNoServer(const QString &name, int &index);
 

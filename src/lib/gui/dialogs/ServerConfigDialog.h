@@ -92,6 +92,8 @@ private:
   void refreshControls();
   void initConnections() const;
   void updateControls() const;
+  /// @brief 刷新布局页提示：双侧切入勾了但没摆在服务器左右两侧时给出警告。
+  void updateLayoutHint();
   void restoreFromDefaults();
   void setServerConfig();
   bool isGeneralConfigModified() const;

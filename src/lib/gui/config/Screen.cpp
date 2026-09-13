@@ -34,6 +34,8 @@ void Screen::loadSettings(QSettingsProxy &settings)
   readSettings(settings, fixes(), "fix", 0, static_cast<int>(NumFixes));
 
   m_Aliases = Settings::value(Settings::Screen::Aliases.arg(name)).toStringList();
+
+  setDualSide(settings.value("dualSide").toBool());
 }
 
 void Screen::saveSettings(QSettingsProxy &settings) const
@@ -48,6 +50,7 @@ void Screen::saveSettings(QSettingsProxy &settings) const
   Settings::setValue(Settings::Screen::Aliases.arg(screenName), m_Aliases);
 
   settings.setValue("switchCornerSize", switchCornerSize());
+  settings.setValue("dualSide", dualSide());
 
   writeSettings(settings, modifiers(), "modifier");
   writeSettings(settings, switchCorners(), "switchCorner");
@@ -83,5 +86,6 @@ bool Screen::operator==(const Screen &screen) const
 {
   return m_Name == screen.m_Name && m_Aliases == screen.m_Aliases && m_Modifiers == screen.m_Modifiers &&
          m_SwitchCorners == screen.m_SwitchCorners && m_SwitchCornerSize == screen.m_SwitchCornerSize &&
-         m_Fixes == screen.m_Fixes && m_Swapped == screen.m_Swapped && m_isServer == screen.m_isServer;
+         m_Fixes == screen.m_Fixes && m_Swapped == screen.m_Swapped && m_isServer == screen.m_isServer &&
+         m_DualSide == screen.m_DualSide;
 }

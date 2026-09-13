@@ -31,13 +31,13 @@ class Screen : public ScreenConfig
   friend QDataStream &operator<<(QDataStream &outStream, const Screen &screen)
   {
     return outStream << screen.name() << screen.switchCornerSize() << screen.aliases() << screen.modifiers()
-                     << screen.switchCorners() << screen.fixes() << screen.isServer();
+                     << screen.switchCorners() << screen.fixes() << screen.isServer() << screen.dualSide();
   }
 
   friend QDataStream &operator>>(QDataStream &inStream, Screen &screen)
   {
     return inStream >> screen.m_Name >> screen.m_SwitchCornerSize >> screen.m_Aliases >> screen.m_Modifiers >>
-           screen.m_SwitchCorners >> screen.m_Fixes >> screen.m_isServer;
+           screen.m_SwitchCorners >> screen.m_Fixes >> screen.m_isServer >> screen.m_DualSide;
   }
 
 public:
@@ -107,6 +107,21 @@ public:
   {
     return m_isServer;
   }
+  /**
+   * @brief dualSide 双侧切入：本屏同时接入「与服务器相邻的那一侧」的对面一侧。
+   *
+   * 只有客户端屏幕（非服务器）需要设置本标记。开启后，服务器在 links 段里会在左右
+   * 两个方向都指向本屏——screens 段仍然只定义一次本屏（屏名必须唯一，服务器会拒绝
+   * 重名）。鼠标可以从服务器的任意一侧滑入本屏。
+   */
+  [[nodiscard]] bool dualSide() const
+  {
+    return m_DualSide;
+  }
+  void setDualSide(const bool on)
+  {
+    m_DualSide = on;
+  }
   void markAsServer()
   {
     m_isServer = true;
@@ -166,4 +181,6 @@ private:
   QList<bool> m_Fixes{false, false, false, false};
   bool m_Swapped = false;
   bool m_isServer = false;
+  /// @brief 双侧切入标记，见 dualSide()。持久化在 internalConfig/screens[i]/dualSide。
+  bool m_DualSide = false;
 };

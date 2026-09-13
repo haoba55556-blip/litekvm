@@ -52,11 +52,16 @@ QVariant ScreenSetupModel::data(const QModelIndex &index, int role) const
   case Qt::DecorationRole:
     return screen(index).pixmap();
 
-  case Qt::ToolTipRole:
-    return QString(tr("<center>Screen: <b>%1</b></center>"
-                      "<br>Double click to edit settings"
-                      "<br>Drag screen to the trashcan to remove it"))
-        .arg(screen(index).name());
+  case Qt::ToolTipRole: {
+    QString tip = QString(tr("<center>Screen: <b>%1</b></center>"
+                             "<br>Double click to edit settings"
+                             "<br>Drag screen to the trashcan to remove it"))
+                      .arg(screen(index).name());
+    // 双侧切入：该屏同时接在网格相邻屏（通常是服务器）的左右两侧，鼠标可从任一侧滑入。
+    if (screen(index).dualSide() && !screen(index).isServer())
+      tip.append(tr("<br><b>Dual side</b>: linked to both sides of the neighbouring screen"));
+    return tip;
+  }
 
   case Qt::DisplayRole:
     return screen(index).name();
@@ -161,4 +166,27 @@ bool ScreenSetupModel::isFull() const
 {
   auto emptyScreen = std::ranges::find_if(m_Screens, [](const Screen &item) { return item.isNull(); });
   return (static_cast<QList<Screen>::const_iterator>(emptyScreen) == m_Screens.cend());
+}
+
+QStringList ScreenSetupModel::misconfiguredDualSideScreens() const
+{
+  QStringList misconfigured;
+
+  for (int row = 0; row < m_NumRows; row++) {
+    for (int column = 0; column < m_NumColumns; column++) {
+      const Screen &candidate = screen(column, row);
+
+      // 双侧切入只对客户端屏幕生效，服务器屏上的标记会被忽略。
+      if (candidate.isNull() || candidate.isServer() || !candidate.dualSide())
+        continue;
+
+      const bool serverOnTheLeft = column > 0 && screen(column - 1, row).isServer();
+      const bool serverOnTheRight = column + 1 < m_NumColumns && screen(column + 1, row).isServer();
+
+      if (!serverOnTheLeft && !serverOnTheRight)
+        misconfigured.append(candidate.name());
+    }
+  }
+
+  return misconfigured;
 }

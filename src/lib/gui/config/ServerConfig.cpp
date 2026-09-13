@@ -156,6 +156,33 @@ int ServerConfig::adjacentScreenIndex(int idx, int deltaColumn, int deltaRow) co
   return arrayPos;
 }
 
+int ServerConfig::neighbourIndex(int idx, int deltaColumn, int deltaRow) const
+{
+  const int adjacent = adjacentScreenIndex(idx, deltaColumn, deltaRow);
+  if (adjacent != -1 && !screens()[adjacent].isNull())
+    return adjacent;
+
+  return dualSideNeighbourIndex(idx, deltaColumn, deltaRow);
+}
+
+int ServerConfig::dualSideNeighbourIndex(int idx, int deltaColumn, int deltaRow) const
+{
+  // 双侧切入（dual side）：服务器左右两侧接到同一台客户端。
+  // deskflow 的 links 段允许同一台屏幕的 left 与 right 指向同一目标屏幕，但 screens 段
+  // 要求屏名唯一（重名时服务器拒绝启动），所以这里只补边、绝不新增屏幕。
+  // 只有左侧/右侧（deltaColumn != 0）开放本特性；上下两侧的语义与网格不一致，暂不开放。
+  if (deltaColumn == 0 || idx < 0 || idx >= screens().size() || screens()[idx].isNull() ||
+      !screens()[idx].isServer())
+    return -1;
+
+  // 反向的网格邻居 = 本屏的「锚点」屏；只有锚点屏自己勾选了双侧切入才镜像。
+  const int anchor = adjacentScreenIndex(idx, -deltaColumn, deltaRow);
+  if (anchor == -1 || screens()[anchor].isNull() || !screens()[anchor].dualSide())
+    return -1;
+
+  return anchor;
+}
+
 QTextStream &operator<<(QTextStream &outStream, const ServerConfig &config)
 {
   outStream << "section: screens" << Qt::endl;
@@ -173,8 +200,10 @@ QTextStream &operator<<(QTextStream &outStream, const ServerConfig &config)
     if (!screen.isNull()) {
       outStream << "\t" << screen.name() << ":\n";
       for (const auto &neighbour : std::as_const(neighbourDirs)) {
-        int idx = config.adjacentScreenIndex(i, neighbour.x, neighbour.y);
-        if (idx != -1 && !config.screens()[idx].isNull())
+        // neighbourIndex 在网格相邻之外还会补上双侧切入的镜像边；
+        // 同一目标屏可以在两个不同方向各出现一次（links 段允许，screens 段不受影响）。
+        const int idx = config.neighbourIndex(i, neighbour.x, neighbour.y);
+        if (idx != -1)
           outStream << "\t\t" << neighbour.name << " = " << config.screens()[idx].name() << Qt::endl;
       }
     }

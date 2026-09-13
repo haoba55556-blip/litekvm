@@ -81,6 +81,16 @@
         </property>
        </widget>
       </item>
+      <item>
+       <widget class="QCheckBox" name="chkDualSide">
+        <property name="toolTip">
+         <string>Connect this computer to both sides of the screen next to it in the layout (usually the server), so the mouse can slide into it from either side.</string>
+        </property>
+        <property name="text">
+         <string>Connect to both sides of the neighbouring screen</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>

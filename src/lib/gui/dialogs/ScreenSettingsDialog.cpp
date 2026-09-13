@@ -32,6 +32,17 @@ ScreenSettingsDialog::ScreenSettingsDialog(QWidget *parent, Screen *screen, cons
 
   ui->lineNameEdit->setText(m_screen->name());
 
+  // 双侧切入是客户端屏幕的属性：勾选后服务器会在 links 段里用 left 与 right 同时指向本屏。
+  // 服务器屏上禁用本项——服务器屏名必须唯一，把同一台客户端放进两个格子会被服务器拒绝。
+  ui->chkDualSide->setChecked(m_screen->dualSide());
+  ui->chkDualSide->setEnabled(!m_screen->isServer());
+  if (m_screen->isServer()) {
+    ui->chkDualSide->setToolTip(
+        tr("This is the server. Tick this option on the client computer instead: the server then "
+           "connects to that client on both sides.")
+    );
+  }
+
   const auto valNameError = new validators::ValidationError(this, ui->lblNameError);
   const auto valName = new validators::ScreenNameValidator(ui->lineNameEdit, valNameError, screens);
   ui->lineNameEdit->setValidator(valName);
@@ -113,6 +124,7 @@ void ScreenSettingsDialog::accept()
   m_screen->setSwitchCorner(BottomLeft, ui->chkDeadBottomLeft->isChecked());
   m_screen->setSwitchCorner(BottomRight, ui->chkDeadBottomRight->isChecked());
   m_screen->setSwitchCornerSize(ui->sbSwitchCornerSize->value());
+  m_screen->setDualSide(ui->chkDualSide->isChecked());
 
   m_screen->setFix(CapsLock, ui->chkFixCapsLock->isChecked());
   m_screen->setFix(NumLock, ui->chkFixNumLock->isChecked());
