@@ -1082,7 +1082,11 @@ void ClipFileTransfer::handleComplete(const QJsonObject &msg)
 
   if (entry.isDirectory) {
     Q_EMIT entryCompleted(m_entryIndex, m_destPaths.value(m_entryIndex).finalPath);
-    m_completedPaths.append(m_destPaths.value(m_entryIndex).finalPath);
+    // Only top-level entries belong on the clipboard: a copied folder is one
+    // clipboard item, its children are implied by it. Adding every child as a
+    // separate top-level path would flatten the folder onto the desktop.
+    if (!entry.relPath.contains(QLatin1Char('/')))
+      m_completedPaths.append(m_destPaths.value(m_entryIndex).finalPath);
   } else {
     if (m_entryOffset != std::uint64_t(entry.size)) {
       sendError(QStringLiteral("SIZE"));
@@ -1112,7 +1116,8 @@ void ClipFileTransfer::handleComplete(const QJsonObject &msg)
       failed(Error::Io, QStringLiteral("cannot move %1 into place").arg(dest.partPath));
       return;
     }
-    m_completedPaths.append(dest.finalPath);
+    if (!entry.relPath.contains(QLatin1Char('/')))
+      m_completedPaths.append(dest.finalPath);
     Q_EMIT entryCompleted(m_entryIndex, dest.finalPath);
   }
 

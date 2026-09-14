@@ -13,6 +13,7 @@
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonParseError>
+#include <QNetworkProxy>
 #include <QTimer>
 
 namespace litekvm {
@@ -182,18 +183,20 @@ void ClipFileService::sendFilesTo(const QString &host, quint16 port, const QStri
     reportError(Error::Protocol, QStringLiteral("sendFilesTo(): no paths given"));
     return;
   }
+  // Listening is fine — the same service can reply to an incoming offer while
+  // initiating an outgoing one (they use separate sockets, and the
+  // m_socket/m_transfer guard above already limits concurrency).
   if (m_socket || m_transfer) {
     reportError(Error::Busy, QStringLiteral("a session is already live (one transfer at a time)"));
-    return;
-  }
-  if (m_server.isListening()) {
-    reportError(Error::Busy, QStringLiteral("this service is listening; use a client instance to send"));
     return;
   }
 
   m_pendingPaths = paths;
 
   auto *socket = new QTcpSocket(this);
+  // 局域网直连必须绕过系统代理：Qt 默认继承 Windows 代理设置，主控端开着
+  // 代理时 connectToHost() 会试图把内网 IP 也走代理，直接报 ProxyError。
+  socket->setProxy(QNetworkProxy::NoProxy);
   attachSocket(socket, Role::Client);
 
   connect(socket, &QTcpSocket::connected, this, [this, socket] {

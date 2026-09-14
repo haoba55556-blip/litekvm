@@ -9,6 +9,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonParseError>
+#include <QNetworkProxy>
 
 namespace litekvm {
 
@@ -110,6 +111,7 @@ void LayoutSync::stop()
 void LayoutSync::connectToPeer(const QString &host, quint16 port)
 {
   auto *sock = new QTcpSocket(this);
+  sock->setProxy(QNetworkProxy::NoProxy);  // 局域网直连，绕过系统代理
   connect(sock, &QTcpSocket::connected, this, [this, sock] {
     m_peers.insert(sock);
     // bring the newcomer up to date immediately

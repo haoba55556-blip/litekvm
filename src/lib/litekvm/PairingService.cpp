@@ -4,6 +4,8 @@
 // Spec: docs/discovery-pairing-spec.md §4-§7 (litekvm-design repo)
 #include "PairingService.h"
 
+#include <QNetworkProxy>
+
 namespace litekvm {
 
 namespace {
@@ -311,6 +313,7 @@ QString PairingService::platformString()
 void PairingService::pairWith(const DiscoveredPeer &peer)
 {
   auto *sock = new QTcpSocket(this);
+  sock->setProxy(QNetworkProxy::NoProxy);  // 局域网配对直连，绕过系统代理
   connect(sock, &QTcpSocket::connected, this, [this, sock] {
     // A → PAIR_REQUEST
     m_clientNonceA = randomNonce(32);
