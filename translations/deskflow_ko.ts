@@ -716,6 +716,14 @@ Additionally, check you are able to %1 the server config file: %2</source>
         <source>正在取消文件传输…</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>附近的电脑</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>日志</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>NewScreenWidget</name>
@@ -1709,6 +1717,10 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>❌ %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>连接</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

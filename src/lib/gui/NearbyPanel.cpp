@@ -19,9 +19,9 @@ NearbyPanel::NearbyPanel(QWidget *parent) : QWidget(parent)
   auto *layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);
 
-  auto *title = new QLabel(tr("附近的电脑 / Nearby computers"), this);
-  title->setStyleSheet(QStringLiteral("font-weight: bold;"));
-  layout->addWidget(title);
+  m_title = new QLabel(tr("附近的电脑 / Nearby computers"), this);
+  m_title->setStyleSheet(QStringLiteral("font-weight: bold;"));
+  layout->addWidget(m_title);
 
   m_table = new QTableWidget(0, 3, this);
   m_table->setHorizontalHeaderLabels({tr("名称"), tr("平台"), tr("状态")});
@@ -37,14 +37,48 @@ NearbyPanel::NearbyPanel(QWidget *parent) : QWidget(parent)
   m_btnPair->setEnabled(false);
   layout->addWidget(m_btnPair);
 
+  m_btnConnect = new QPushButton(tr("连接"), this);
+  m_btnConnect->setEnabled(false);
+  layout->addWidget(m_btnConnect);
+
   m_status = new QLabel(this);
   layout->addWidget(m_status);
 
   connect(m_table, &QTableWidget::itemSelectionChanged, this, [this] {
     m_btnPair->setEnabled(m_table->currentRow() >= 0);
+    // 「连接」仅对已配对的设备可用
+    m_btnConnect->setEnabled(currentPeerState() == litekvm::DiscoveredPeer::State::Paired);
   });
 
   connect(m_btnPair, &QPushButton::clicked, this, &NearbyPanel::onPairClicked);
+
+  connect(m_btnConnect, &QPushButton::clicked, this, [this] {
+    const QString id = selectedDeviceId();
+    if (!id.isEmpty())
+      Q_EMIT connectToPeer(id);
+  });
+
+  // 双击已配对设备 = 一键连接（不用输 IP）
+  connect(m_table, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem *item) {
+    if (!item)
+      return;
+    if (currentPeerState() == litekvm::DiscoveredPeer::State::Paired) {
+      const QString id = selectedDeviceId();
+      if (!id.isEmpty())
+        Q_EMIT connectToPeer(id);
+    }
+  });
+}
+
+litekvm::DiscoveredPeer::State NearbyPanel::currentPeerState() const
+{
+  const int row = m_table->currentRow();
+  if (row < 0 || !m_table->item(row, 0))
+    return litekvm::DiscoveredPeer::State::Busy;
+  const QString id = m_table->item(row, 0)->data(Qt::UserRole).toString();
+  if (m_peerStates.contains(id))
+    return m_peerStates.value(id);
+  return litekvm::DiscoveredPeer::State::Busy;
 }
 
 void NearbyPanel::setController(LiteKvmController *controller)
@@ -73,6 +107,8 @@ void NearbyPanel::setController(LiteKvmController *controller)
 
 void NearbyPanel::refreshRow(const litekvm::DiscoveredPeer &peer)
 {
+  m_peerStates[peer.deviceId] = peer.state;
+
   // find or create the row keyed by device_id (UserRole of col 0)
   int row = -1;
   for (int r = 0; r < m_table->rowCount(); ++r) {

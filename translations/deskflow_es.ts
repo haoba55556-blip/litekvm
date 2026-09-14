@@ -716,6 +716,14 @@ Además, verifique que puede %1 el archivo de configuración del servidor: %2</t
         <source>正在取消文件传输…</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>附近的电脑</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>日志</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>NewScreenWidget</name>
@@ -1710,6 +1718,10 @@ Al habilitar esta opción, se deshabilitará la interfaz gráfica de usuario (GU
     </message>
     <message>
         <source>❌ %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>连接</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

@@ -41,10 +41,12 @@ QMainWindow, QDialog {
     background-color: #0D0F12;
 }
 
+/* 页面四角圆角：主窗口 + 面板统一 12px */
+QMainWindow {
+    border-radius: 12px;
+}
 QMainWindow::separator {
-    background-color: #1F242B;
-    width: 1px;
-    height: 1px;
+    border-radius: 6px;
 }
 
 /* NOTE: deliberately no `QLabel { background: ... }` rule here — the validator

@@ -32,6 +32,7 @@
 #include "gui/core/CoreProcess.h"
 #include "gui/ipc/DaemonIpcClient.h"
 #include "gui/widgets/LogDock.h"
+#include "gui/widgets/CollapsiblePanel.h"
 #include "net/FingerprintDatabase.h"
 #include "widgets/StatusBar.h"
 
@@ -100,7 +101,8 @@ MainWindow::MainWindow()
 
   setWindowIcon(QIcon::fromTheme(kRevFqdnName));
 
-  addDockWidget(Qt::BottomDockWidgetArea, m_logDock);
+  // Layout reconfigured below: collapsible panels replace the dock.
+  // addDockWidget(Qt::BottomDockWidgetArea, m_logDock);
 
   // Setup Actions
   m_actionAbout->setMenuRole(QAction::AboutRole);
@@ -148,6 +150,7 @@ MainWindow::MainWindow()
 
   createMenuBar();
   setupControls();
+  reworkPanels();
   updateText();
   connectSlots();
   setupTrayIcon();
@@ -209,8 +212,10 @@ void MainWindow::restoreWindow()
     move(screenGeometry.center() - rect().center());
   }
 
-  if (!Settings::value(Settings::Gui::LogExpanded).toBool())
-    setFixedSize(size());
+  if (!Settings::value(Settings::Gui::LogExpanded).toBool() && m_logCollapsible) {
+    m_logCollapsible->setExpanded(false);
+    adjustSize();
+  }
 }
 
 void MainWindow::setupControls()
@@ -247,6 +252,71 @@ void MainWindow::setupControls()
     ui->btnSaveServerConfig->setIconSize(QSize(22, 22));
   }
   setStatusBar(m_statusBar);
+}
+
+/**
+ * @brief Rebuild the central layout with collapsible panels.
+ * Replaces the bottom dock (LogDock) and the inline NearbyPanel with two
+ * stacked CollapsiblePanels ("附近的电脑" / "日志"), both hideable by clicking
+ * their header bars. Keeps the LogDock object alive (appendLine() etc still
+ * work) but no longer docks it into the QMainWindow.
+ */
+void MainWindow::reworkPanels()
+{
+  auto *topLayout = qobject_cast<QVBoxLayout *>(ui->topLevelWidget->layout());
+  if (!topLayout)
+    return;
+
+  // --- 附近设备 → collapsible panel ---
+  ui->nearbyPanel->setShowTitle(false);
+  m_nearbyCollapsible = new deskflow::gui::CollapsiblePanel(
+      tr("附近的电脑"), ui->nearbyPanel, ui->topLevelWidget);
+  topLayout->addWidget(m_nearbyCollapsible);
+
+  // --- 日志 → collapsible panel (reuse LogDock's body widget) ---
+  if (m_logDock) {
+    if (auto *logBody = m_logDock->widget()) {
+      m_logCollapsible = new deskflow::gui::CollapsiblePanel(
+          tr("日志"), logBody, ui->topLevelWidget);
+      topLayout->addWidget(m_logCollapsible);
+      // Stop docking the log; keep the object for appendLine().
+      removeDockWidget(m_logDock);
+      m_logDock->setParent(this);
+      m_logDock->hide();
+      m_logCollapsible->setExpanded(
+          Settings::value(Settings::Gui::LogExpanded).toBool());
+    }
+  }
+
+  topLayout->addStretch();
+
+  // --- 日志菜单项：不再控制 dock，改为切换 collapsible 面板 ---
+  if (m_menuView) {
+    // 移除旧的 toggleViewAction 菜单项
+    auto *oldAction = m_logDock->toggleViewAction();
+    m_menuView->removeAction(oldAction);
+    disconnect(oldAction, nullptr, this, nullptr);
+
+    auto *logAction = new QAction(tr("日志"), this);
+    logAction->setCheckable(true);
+    logAction->setChecked(m_logCollapsible->isExpanded());
+    connect(logAction, &QAction::toggled, this, &MainWindow::toggleLogVisible);
+    m_menuView->addAction(logAction);
+  }
+
+  // --- 一键连接：附近设备已配对 → 自动设置 host 并启动 ---
+  connect(ui->nearbyPanel, &NearbyPanel::connectToPeer,
+          this, [this](const QString &deviceId) {
+    for (const auto &target : m_liteKvmController->clipTargets()) {
+      if (target.deviceId == deviceId && !target.host.isEmpty()) {
+        ui->rbModeClient->setChecked(true);
+        ui->lineHostname->setText(target.host);
+        if (!m_coreProcess.isStarted())
+          startCore();
+        break;
+      }
+    }
+  });
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -316,7 +386,7 @@ void MainWindow::connectSlots()
   connect(ui->rbModeServer, &QRadioButton::toggled, this, &MainWindow::coreModeToggled);
   connect(ui->rbModeClient, &QRadioButton::toggled, this, &MainWindow::coreModeToggled);
 
-  connect(m_logDock->toggleViewAction(), &QAction::toggled, this, &MainWindow::toggleLogVisible);
+  // 日志面板的切换在 reworkPanels() 里绑定到新的菜单 action。
 
   connect(m_statusBar, &StatusBar::requestShowMyFingerprints, this, &MainWindow::showMyFingerprint);
   connect(m_statusBar, &StatusBar::requestUpdateVersion, this, &MainWindow::openGetNewVersionUrl);
@@ -340,23 +410,14 @@ void MainWindow::toggleLogVisible(bool visible)
     return;
   }
 
-  setFixedSize(16777215, 16777215);
   Settings::setValue(Settings::Gui::LogExpanded, visible);
+  if (m_logCollapsible)
+    m_logCollapsible->setExpanded(visible);
   if (visible) {
-    if (m_logDock->isFloating()) {
-      adjustSize();
-      setFixedSize(size());
-    } else {
-      QTimer::singleShot(15, this, [&] { resize(m_expandedSize); });
-    }
+    QTimer::singleShot(15, this, [this] { resize(m_expandedSize); });
   } else {
-    if (!m_logDock->isFloating()) {
-      m_expandedSize = geometry().size();
-    }
-    m_logDock->hide();
-    if (!m_logDock->isFloating()) {
-      adjustSize();
-    }
+    m_expandedSize = geometry().size();
+    adjustSize();
     setFixedSize(size());
   }
   Settings::setValue(Settings::Gui::WindowGeometry, geometry());

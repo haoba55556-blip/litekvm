@@ -116,6 +116,8 @@ add_library(${target} STATIC
   widgets/KeySequenceWidget.h
   widgets/LogDock.cpp
   widgets/LogDock.h
+  widgets/CollapsiblePanel.cpp
+  widgets/CollapsiblePanel.h
   widgets/LogWidget.h
   widgets/LogWidget.cpp
   widgets/NewScreenWidget.cpp

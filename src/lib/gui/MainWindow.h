@@ -40,6 +40,7 @@ class MainWindow;
 
 namespace deskflow::gui {
 class ClipTransferDialog;
+class CollapsiblePanel;
 class LiteKvmController;
 class NearbyPanel;
 namespace ipc {
@@ -133,6 +134,7 @@ private:
   void handleLogLine(const QString &line);
   void updateFingerprintButton();
   void updateScreenName();
+  void reworkPanels();
   void saveSettings() const;
   void showConfigureServer(const QString &message);
   void showConfigureClient();
@@ -207,6 +209,8 @@ private:
   deskflow::gui::ipc::DaemonIpcClient *m_daemonIpcClient = nullptr;
 
   LogDock *m_logDock;
+  deskflow::gui::CollapsiblePanel *m_nearbyCollapsible = nullptr;
+  deskflow::gui::CollapsiblePanel *m_logCollapsible = nullptr;
   StatusBar *m_statusBar = nullptr;
   deskflow::gui::LiteKvmController *m_liteKvmController = nullptr;
 
