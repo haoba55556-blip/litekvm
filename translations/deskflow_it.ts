@@ -277,6 +277,13 @@ Vuoi connetterti al server?
     </message>
 </context>
 <context>
+    <name>I18N</name>
+    <message>
+        <source>Follow system</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>LogDock</name>
     <message>
         <source>Log</source>
@@ -585,6 +592,130 @@ Inoltre, verifica di poter %1 il file di configurazione del server: %2</translat
         <source>&lt;p&gt;Keyboard layout support requires matching layouts on all computers. The following layouts from the other computer are not installed on this computer:&lt;/p&gt;&lt;p&gt;&lt;b&gt;%1&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Please install them to enable support for these layouts.&lt;/p&gt;</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>发送文件到已配对的电脑…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>文件剪贴板没有启用，请先在「设置 → 高级 → 文件剪贴板」里打开它。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>选择要发送的文件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>已经有一个文件传输在进行中，等它结束再发送吧。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>这批文件共 %1，超过单次上限 %2，没有发送。可以到设置里调大「单次上限」。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>剪贴板里有文件，但附近没有已配对的电脑，未发送。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>附近没有已配对的电脑，先在「附近的电脑」里配对一台再发文件。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1（在线）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1（找不到）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>发送到哪台电脑</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>选择接收文件的电脑：</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>发送文件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>要把 %1 个文件（共 %2）发送到「%3」吗？</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>…还有 %1 项</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>收到文件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>「%1」想发送 %2 个文件（共 %3）给你。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>接收后文件会存到收件目录，并放进剪贴板，可以直接粘贴。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>接收</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>拒绝</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>✅ 已发送到「%1」（共 %2）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>✅ 已接收 %1 个文件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>✅ 已接收 %1 个文件到 %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>❌ %1：%2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>发送失败</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>接收失败</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>已取消发送</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>已取消接收</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>文件剪贴板：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>正在发送 %1 到「%2」…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>正在接收来自「%1」的 %2 …</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>正在取消文件传输…</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>NewScreenWidget</name>
@@ -878,12 +1009,28 @@ Inoltre, verifica di poter %1 il file di configurazione del server: %2</translat
         <source>Alt &amp;Gr</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Connect this computer to both sides of the screen next to it in the layout (usually the server), so the mouse can slide into it from either side.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connect to both sides of the neighbouring screen</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This is the server. Tick this option on the client computer instead: the server then connects to that client on both sides.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ScreenSetupModel</name>
     <message>
         <source>&lt;center&gt;Screen: &lt;b&gt;%1&lt;/b&gt;&lt;/center&gt;&lt;br&gt;Double click to edit settings&lt;br&gt;Drag screen to the trashcan to remove it</source>
         <translation>&lt;center&gt;Schermo: &lt;b&gt;%1&lt;/b&gt;&lt;/center&gt;&lt;br&gt;Fai doppio clic per modificare le impostazioni&lt;br&gt;Trascina lo schermo nel cestino per rimuoverlo</translation>
+    </message>
+    <message>
+        <source>&lt;br&gt;&lt;b&gt;Dual side&lt;/b&gt;: linked to both sides of the neighbouring screen</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -1060,6 +1207,10 @@ L&apos;abilitazione di questa impostazione disabiliterà l&apos;interfaccia graf
         <source>Enable lock to computer at startup</source>
         <translation type="unfinished">Abilita il blocco al computer all&apos;avvio</translation>
     </message>
+    <message>
+        <source>&lt;br&gt;&lt;br&gt;&lt;b&gt;Dual side needs the server next to it:&lt;/b&gt; move %1 to the left or right of the server, or untick &quot;Connect to both sides of the neighbouring screen&quot; for it.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>SettingsDialog</name>
@@ -1185,7 +1336,7 @@ L&apos;abilitazione di questa impostazione disabiliterà l&apos;interfaccia graf
     </message>
     <message>
         <source>Language</source>
-        <translation>Lingua</translation>
+        <translation type="vanished">Lingua</translation>
     </message>
     <message>
         <source>Enable GUI debug messages</source>
@@ -1254,6 +1405,30 @@ L&apos;abilitazione di questa impostazione disabiliterà l&apos;interfaccia graf
     <message>
         <source>Remove all settings</source>
         <translation type="unfinished">Rimuovi tutte le impostazioni</translation>
+    </message>
+    <message>
+        <source>Interface language</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Changes the interface language right away. &quot;Follow system&quot; uses the language of your operating system.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>文件剪贴板</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>自动发送给已配对设备</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>自动接受已配对设备发来的文件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>单次上限 (MB)</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -1354,6 +1529,92 @@ L&apos;abilitazione di questa impostazione disabiliterà l&apos;interfaccia graf
     <message>
         <source>Encryption Disabled</source>
         <translation>Crittografia disabilitata</translation>
+    </message>
+</context>
+<context>
+    <name>deskflow::gui::ClipTransferDialog</name>
+    <message>
+        <source>对端</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>发送文件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>接收文件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>正在发送文件到「%1」</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>正在接收来自「%1」的文件</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>关闭</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1% · %2 / %3%4</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1/s</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>剩余约 %1 秒</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>deskflow::gui::LiteKvmController</name>
+    <message>
+        <source>读写文件失败</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>文件校验失败（sha1 不一致）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>协议错误</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>对端拒绝了这次传输</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>传输已取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>文件超过单次传输上限</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>等待对端超时</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>对端出错</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>与对端的连接断开了</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>找不到已配对的对端「%1」，无法发送文件。</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

@@ -127,6 +127,7 @@ void SettingsDialog::initConnections() const
 
   connect(ui->groupSecurity, &QGroupBox::toggled, this, &SettingsDialog::updateTlsControlsEnabled);
   connect(ui->groupService, &QGroupBox::toggled, this, &SettingsDialog::updateControls);
+  connect(ui->groupFileClipboard, &QGroupBox::toggled, this, &SettingsDialog::updateFileClipboardControls);
   connect(ui->btnClearAllSettings, &QPushButton::clicked, this, &SettingsDialog::resetAllSettings);
   connect(ui->btnTlsRegenCert, &QPushButton::clicked, this, &SettingsDialog::regenCertificates);
   connect(ui->comboTlsKeyLength, &QComboBox::currentIndexChanged, this, &SettingsDialog::updateRequestedKeySize);
@@ -162,6 +163,10 @@ void SettingsDialog::initConnections() const
   connect(ui->cbRunExitCommand, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->lineCommandEnter, &QLineEdit::textChanged, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->lineCommandExit, &QLineEdit::textChanged, this, &SettingsDialog::setButtonBoxEnabledButtons);
+  connect(ui->groupFileClipboard, &QGroupBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
+  connect(ui->cbFileClipboardAutoSend, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
+  connect(ui->cbFileClipboardAutoAccept, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
+  connect(ui->sbFileClipboardMaxMb, &QSpinBox::valueChanged, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(Settings::instance(), &Settings::settingsWritableChanged, this, &SettingsDialog::updateControls);
 }
 
@@ -281,6 +286,10 @@ void SettingsDialog::accept()
   Settings::setValue(Settings::Core::EnableExitCommand, ui->cbRunExitCommand->isChecked());
   Settings::setValue(Settings::Core::ScreenEnterCommand, ui->lineCommandEnter->text());
   Settings::setValue(Settings::Core::ScreenExitCommand, ui->lineCommandExit->text());
+  Settings::setValue(Settings::LiteKvm::EnableFileClipboard, ui->groupFileClipboard->isChecked());
+  Settings::setValue(Settings::LiteKvm::FileClipboardAutoSend, ui->cbFileClipboardAutoSend->isChecked());
+  Settings::setValue(Settings::LiteKvm::FileClipboardAutoAccept, ui->cbFileClipboardAutoAccept->isChecked());
+  Settings::setValue(Settings::LiteKvm::FileClipboardMaxMb, ui->sbFileClipboardMaxMb->value());
 
   Settings::ProcessMode mode;
   if (ui->groupService->isChecked())
@@ -309,6 +318,10 @@ void SettingsDialog::loadFromConfig()
   ui->cbRunExitCommand->setChecked(Settings::value(Settings::Core::EnableExitCommand).toBool());
   ui->lineCommandEnter->setText(Settings::value(Settings::Core::ScreenEnterCommand).toString());
   ui->lineCommandExit->setText(Settings::value(Settings::Core::ScreenExitCommand).toString());
+  ui->groupFileClipboard->setChecked(Settings::value(Settings::LiteKvm::EnableFileClipboard).toBool());
+  ui->cbFileClipboardAutoSend->setChecked(Settings::value(Settings::LiteKvm::FileClipboardAutoSend).toBool());
+  ui->cbFileClipboardAutoAccept->setChecked(Settings::value(Settings::LiteKvm::FileClipboardAutoAccept).toBool());
+  ui->sbFileClipboardMaxMb->setValue(Settings::value(Settings::LiteKvm::FileClipboardMaxMb).toInt());
 
   const auto processMode = Settings::value(Settings::Core::ProcessMode).value<Settings::ProcessMode>();
   ui->groupService->setChecked(processMode == Settings::ProcessMode::Service);
@@ -429,6 +442,7 @@ void SettingsDialog::updateControls()
   ui->cbRunExitCommand->setEnabled(writable);
   ui->lineCommandEnter->setEnabled(writable && ui->cbRunEnterCommand->isChecked());
   ui->lineCommandExit->setEnabled(writable && ui->cbRunExitCommand->isChecked());
+  updateFileClipboardControls();
 
   // Portable mode only ever applies to Windows.
   // Daemon options should only be available on Windows when *not* in portable mode.
@@ -454,6 +468,18 @@ void SettingsDialog::updateRequestedKeySize() const
 void SettingsDialog::logLevelChanged()
 {
   ui->lblDebugWarning->setVisible(ui->comboLogLevel->currentIndex() > static_cast<int>(LogLevel::Level::Info));
+}
+
+void SettingsDialog::updateFileClipboardControls()
+{
+  const bool writable = Settings::isWritable();
+  const bool enabled = ui->groupFileClipboard->isChecked();
+
+  ui->groupFileClipboard->setEnabled(writable);
+  ui->cbFileClipboardAutoSend->setEnabled(writable && enabled);
+  ui->cbFileClipboardAutoAccept->setEnabled(writable && enabled);
+  ui->lblFileClipboardMaxMb->setEnabled(writable && enabled);
+  ui->sbFileClipboardMaxMb->setEnabled(writable && enabled);
 }
 
 bool SettingsDialog::isModified() const
@@ -483,6 +509,11 @@ bool SettingsDialog::isModified() const
       (ui->cbRunExitCommand->isChecked() != Settings::value(Settings::Core::EnableExitCommand).toBool()) ||
       (ui->lineCommandEnter->text() != Settings::value(Settings::Core::ScreenEnterCommand).toString()) ||
       (ui->lineCommandExit->text() != Settings::value(Settings::Core::ScreenExitCommand).toString()) ||
+      (ui->groupFileClipboard->isChecked() != Settings::value(Settings::LiteKvm::EnableFileClipboard).toBool()) ||
+      (ui->cbFileClipboardAutoSend->isChecked() != Settings::value(Settings::LiteKvm::FileClipboardAutoSend).toBool()) ||
+      (ui->cbFileClipboardAutoAccept->isChecked() !=
+       Settings::value(Settings::LiteKvm::FileClipboardAutoAccept).toBool()) ||
+      (ui->sbFileClipboardMaxMb->value() != Settings::value(Settings::LiteKvm::FileClipboardMaxMb).toInt()) ||
       (languageCode(ui->comboLanguage->currentText()) != storedLanguage());
 
   if (!ignoreInterface)
@@ -519,6 +550,12 @@ bool SettingsDialog::isDefault() const
       (ui->lineCommandExit->text() == Settings::defaultValue(Settings::Core::ScreenExitCommand).toString()) &&
       (ui->cbRunEnterCommand->isChecked() == Settings::defaultValue(Settings::Core::EnableEnterCommand).toBool()) &&
       (ui->cbRunExitCommand->isChecked() == Settings::defaultValue(Settings::Core::EnableExitCommand).toBool()) &&
+      (ui->groupFileClipboard->isChecked() == Settings::defaultValue(Settings::LiteKvm::EnableFileClipboard).toBool()) &&
+      (ui->cbFileClipboardAutoSend->isChecked() ==
+       Settings::defaultValue(Settings::LiteKvm::FileClipboardAutoSend).toBool()) &&
+      (ui->cbFileClipboardAutoAccept->isChecked() ==
+       Settings::defaultValue(Settings::LiteKvm::FileClipboardAutoAccept).toBool()) &&
+      (ui->sbFileClipboardMaxMb->value() == Settings::defaultValue(Settings::LiteKvm::FileClipboardMaxMb).toInt()) &&
       (languageCode(ui->comboLanguage->currentText()) == I18N::SystemLanguage)
   );
 }
@@ -540,6 +577,10 @@ void SettingsDialog::resetToDefault()
   ui->cbRunExitCommand->setChecked(Settings::defaultValue(Settings::Core::EnableExitCommand).toBool());
   ui->lineCommandEnter->setText(Settings::defaultValue(Settings::Core::ScreenEnterCommand).toString());
   ui->lineCommandExit->setText(Settings::defaultValue(Settings::Core::ScreenExitCommand).toString());
+  ui->groupFileClipboard->setChecked(Settings::defaultValue(Settings::LiteKvm::EnableFileClipboard).toBool());
+  ui->cbFileClipboardAutoSend->setChecked(Settings::defaultValue(Settings::LiteKvm::FileClipboardAutoSend).toBool());
+  ui->cbFileClipboardAutoAccept->setChecked(Settings::defaultValue(Settings::LiteKvm::FileClipboardAutoAccept).toBool());
+  ui->sbFileClipboardMaxMb->setValue(Settings::defaultValue(Settings::LiteKvm::FileClipboardMaxMb).toInt());
 
   const auto autoHide = Settings::defaultValue(Settings::Gui::Autohide).toBool();
   ui->rbCloseToTray->setChecked(autoHide);

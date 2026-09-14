@@ -845,6 +845,72 @@
         </layout>
        </item>
        <item>
+        <widget class="QGroupBox" name="groupFileClipboard">
+         <property name="title">
+          <string>文件剪贴板</string>
+         </property>
+         <property name="checkable">
+          <bool>true</bool>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+         <layout class="QVBoxLayout" name="verticalLayout_fileClipboard">
+          <item>
+           <widget class="QCheckBox" name="cbFileClipboardAutoSend">
+            <property name="text">
+             <string>自动发送给已配对设备</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="cbFileClipboardAutoAccept">
+            <property name="text">
+             <string>自动接受已配对设备发来的文件</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="horizontalLayout_fileClipboardMax">
+            <item>
+             <widget class="QLabel" name="lblFileClipboardMaxMb">
+              <property name="text">
+               <string>单次上限 (MB)</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QSpinBox" name="sbFileClipboardMaxMb">
+              <property name="minimum">
+               <number>1</number>
+              </property>
+              <property name="maximum">
+               <number>102400</number>
+              </property>
+              <property name="value">
+               <number>2048</number>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="horizontalSpacer_fileClipboardMax">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
         <spacer name="verticalSpacer">
          <property name="orientation">
           <enum>Qt::Orientation::Vertical</enum>

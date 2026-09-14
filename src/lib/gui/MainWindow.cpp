@@ -16,6 +16,7 @@
 #include "StyleUtils.h"
 
 #include "dialogs/AboutDialog.h"
+#include "dialogs/ClipTransferDialog.h"
 #include "dialogs/ClientConfigDialog.h"
 #include "dialogs/FingerprintDialog.h"
 #include "dialogs/HelpDialog.h"
@@ -34,10 +35,14 @@
 #include "net/FingerprintDatabase.h"
 #include "widgets/StatusBar.h"
 
+#include <QAbstractButton>
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QDesktopServices>
+#include <QDirIterator>
 #include <QFileDialog>
+#include <QFileInfo>
+#include <QInputDialog>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QMenu>
@@ -81,6 +86,7 @@ MainWindow::MainWindow()
       m_actionRestartCore{new QAction(this)},
       m_actionStopCore{new QAction(this)},
       m_actionShowHelp{new QAction(this)},
+      m_actionSendFiles{new QAction(this)},
       m_networkMonitor{new NetworkMonitor(this)}
 {
   ui->setupUi(this);
@@ -88,6 +94,9 @@ MainWindow::MainWindow()
   // LiteKVM zero-config panel: discovery + PIN pairing
   m_liteKvmController = new LiteKvmController(this);
   ui->nearbyPanel->setController(m_liteKvmController);
+
+  // LiteKVM 跨机文件剪贴板：信号挂载 + 按设置启用
+  setupFileClipboard();
 
   setWindowIcon(QIcon::fromTheme(kRevFqdnName));
 
@@ -128,6 +137,9 @@ MainWindow::MainWindow()
   m_actionShowHelp->setIcon(QIcon::fromTheme(QStringLiteral("question")));
   m_actionShowHelp->setMenuRole(QAction::NoRole);
   m_actionShowHelp->setShortcut(QKeySequence::HelpContents);
+
+  m_actionSendFiles->setIcon(QIcon::fromTheme(QStringLiteral("document-send")));
+  m_actionSendFiles->setMenuRole(QAction::NoRole);
 
   // Setup the Instance Checking
   // In case of a previous crash remove first
@@ -359,6 +371,11 @@ void MainWindow::settingsChanged(const QString &key)
 
   if (key == Settings::Core::ComputerName)
     updateScreenName();
+
+  if ((key == Settings::LiteKvm::EnableFileClipboard) || (key == Settings::LiteKvm::FileClipboardMaxMb)) {
+    applyFileClipboardSettings();
+    return;
+  }
 
   if ((key == Settings::Security::Certificate) || (key == Settings::Security::KeySize) ||
       (key == Settings::Security::TlsEnabled) || (key == Settings::Security::CheckPeers)) {
@@ -668,6 +685,8 @@ void MainWindow::createMenuBar()
   m_menuFile->addAction(m_actionStartCore);
   m_menuFile->addAction(m_actionRestartCore);
   m_menuFile->addAction(m_actionStopCore);
+  m_menuFile->addSeparator();
+  m_menuFile->addAction(m_actionSendFiles);
   m_menuFile->addSeparator();
   m_menuFile->addAction(m_actionQuit);
 
@@ -1074,6 +1093,8 @@ void MainWindow::updateText()
 
   m_actionShowHelp->setText(tr("View &Help"));
 
+  m_actionSendFiles->setText(tr("发送文件到已配对的电脑…"));
+
   //: start / restart core shortcut
   m_actionStartCore->setShortcut(QKeySequence(tr("Ctrl+S")));
   m_actionRestartCore->setShortcut(QKeySequence(tr("Ctrl+S")));
@@ -1333,3 +1354,318 @@ bool MainWindow::canRunCore() const
   const bool isClient = mode == Settings::CoreMode::Client;
   return ((isServer || isClient) && (isClient && !ui->lineHostname->text().isEmpty()) || isServer);
 }
+
+//////////////////////////////////////////////////////////////////////////////
+// 跨机文件剪贴板
+//////////////////////////////////////////////////////////////////////////////
+
+void MainWindow::setupFileClipboard()
+{
+  if (!m_liteKvmController)
+    return;
+
+  connect(m_liteKvmController, &LiteKvmController::localFilesCopied, this, &MainWindow::onLocalFilesCopied);
+  connect(m_liteKvmController, &LiteKvmController::fileOfferReceived, this, &MainWindow::onFileOfferReceived);
+  connect(m_liteKvmController, &LiteKvmController::fileProgressChanged, this, &MainWindow::onFileProgressChanged);
+  connect(m_liteKvmController, &LiteKvmController::fileTransferCompleted, this, &MainWindow::onFileTransferCompleted);
+  connect(m_liteKvmController, &LiteKvmController::fileTransferFailed, this, &MainWindow::onFileTransferFailed);
+  connect(m_liteKvmController, &LiteKvmController::fileTransferCancelled, this, &MainWindow::onFileTransferCancelled);
+  connect(m_liteKvmController, &LiteKvmController::fileClipboardError, this, &MainWindow::onFileClipboardError);
+
+  connect(m_actionSendFiles, &QAction::triggered, this, &MainWindow::requestSendFiles);
+
+  applyFileClipboardSettings();
+}
+
+void MainWindow::applyFileClipboardSettings()
+{
+  if (!m_liteKvmController)
+    return;
+
+  m_fileClipboardEnabled = Settings::value(Settings::LiteKvm::EnableFileClipboard).toBool();
+  const qint64 maxBytes = qint64(Settings::value(Settings::LiteKvm::FileClipboardMaxMb).toInt()) * 1024 * 1024;
+
+  m_liteKvmController->setMaxTransferBytes(maxBytes);
+  m_liteKvmController->setFileClipboardEnabled(m_fileClipboardEnabled);
+
+  if (m_actionSendFiles)
+    m_actionSendFiles->setEnabled(m_fileClipboardEnabled);
+}
+
+void MainWindow::requestSendFiles()
+{
+  if (!m_fileClipboardEnabled) {
+    QMessageBox::information(
+        this, kAppName, tr("文件剪贴板没有启用，请先在「设置 → 高级 → 文件剪贴板」里打开它。")
+    );
+    return;
+  }
+
+  const QStringList paths = QFileDialog::getOpenFileNames(this, tr("选择要发送的文件"));
+  if (paths.isEmpty())
+    return;
+
+  sendFiles(paths, false);
+}
+
+void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard)
+{
+  if (!m_liteKvmController || !m_fileClipboardEnabled || paths.isEmpty())
+    return;
+
+  const auto report = [this, fromClipboard](const QString &message) {
+    if (fromClipboard)
+      notifyUser(message);
+    else
+      QMessageBox::information(this, kAppName, message);
+  };
+
+  if (m_liteKvmController->transferActive()) {
+    report(tr("已经有一个文件传输在进行中，等它结束再发送吧。"));
+    return;
+  }
+
+  const qint64 totalBytes = localFilesSize(paths);
+  const qint64 maxBytes = qint64(Settings::value(Settings::LiteKvm::FileClipboardMaxMb).toInt()) * 1024 * 1024;
+  if (maxBytes > 0 && totalBytes > maxBytes) {
+    report(tr("这批文件共 %1，超过单次上限 %2，没有发送。可以到设置里调大「单次上限」。")
+               .arg(ClipTransferDialog::formatBytes(quint64(totalBytes)), ClipTransferDialog::formatBytes(quint64(maxBytes))));
+    return;
+  }
+
+  const QList<LiteKvmController::ClipTarget> targets = m_liteKvmController->clipTargets();
+  if (targets.isEmpty()) {
+    if (fromClipboard) {
+      // 复制文件是日常操作，附近没有已配对的电脑时别打扰用户，记日志就行
+      m_logDock->appendLine(tr("剪贴板里有文件，但附近没有已配对的电脑，未发送。"));
+      return;
+    }
+    report(tr("附近没有已配对的电脑，先在「附近的电脑」里配对一台再发文件。"));
+    return;
+  }
+
+  QString deviceId;
+  QString peerName;
+  if (targets.size() == 1) {
+    // 只有一台已配对设备，直接用它
+    deviceId = targets.first().deviceId;
+    peerName = targets.first().name;
+  } else {
+    QStringList labels;
+    for (const auto &target : targets)
+      labels.append(target.online ? tr("%1（在线）").arg(target.name) : tr("%1（找不到）").arg(target.name));
+
+    bool ok = false;
+    const QString chosen =
+        QInputDialog::getItem(this, tr("发送到哪台电脑"), tr("选择接收文件的电脑："), labels, 0, false, &ok);
+    const int index = ok ? labels.indexOf(chosen) : -1;
+    if (index < 0)
+      return;
+    deviceId = targets.at(index).deviceId;
+    peerName = targets.at(index).name;
+  }
+
+  const bool autoSend = fromClipboard && Settings::value(Settings::LiteKvm::FileClipboardAutoSend).toBool();
+  if (!autoSend) {
+    const auto answer = QMessageBox::question(
+        this, tr("发送文件"),
+        tr("要把 %1 个文件（共 %2）发送到「%3」吗？")
+            .arg(paths.size())
+            .arg(ClipTransferDialog::formatBytes(quint64(totalBytes)), peerName)
+    );
+    if (answer != QMessageBox::Yes)
+      return;
+  }
+
+  beginTransferUi(true, peerName, quint64(totalBytes));
+  m_liteKvmController->sendFilesToPeer(deviceId, paths);
+}
+
+void MainWindow::onLocalFilesCopied(const QStringList &paths)
+{
+  if (!m_fileClipboardEnabled || paths.isEmpty() || m_filePromptShowing)
+    return;
+
+  // 同一次复制往往会触发多条剪贴板通知（多种格式、多次 CF_HDROP），2 秒内同样的
+  // 文件列表只处理一次，免得同一批文件发两遍。
+  const QString key = paths.join(QChar(0x1F));
+  if (key == m_lastCopiedPaths && m_lastCopiedAt.isValid() && m_lastCopiedAt.elapsed() < 2000)
+    return;
+  m_lastCopiedPaths = key;
+  m_lastCopiedAt.restart();
+
+  m_filePromptShowing = true;
+  sendFiles(paths, true);
+  m_filePromptShowing = false;
+}
+
+void MainWindow::onFileOfferReceived(const QString &peerName, const QStringList &fileNames, qint64 totalBytes,
+                                     int fileCount)
+{
+  if (!m_liteKvmController)
+    return;
+
+  // 信任边界在 ClipFileService 里：它只在已配对的加密通道上收 offer，所以能走到
+  // 这里的请求一定来自已配对设备 —— 没配对的设备不会弹出这个确认框。
+  if (!m_fileClipboardEnabled) {
+    m_liteKvmController->rejectIncomingFiles();
+    return;
+  }
+
+  QString preview = fileNames.mid(0, 8).join(QLatin1Char('\n'));
+  if (fileNames.size() > 8)
+    preview += QStringLiteral("\n") + tr("…还有 %1 项").arg(fileNames.size() - 8);
+
+  const bool autoAccept = Settings::value(Settings::LiteKvm::FileClipboardAutoAccept).toBool();
+  if (!autoAccept) {
+    QMessageBox box(this);
+    box.setWindowTitle(tr("收到文件"));
+    box.setIcon(QMessageBox::Question);
+    box.setText(tr("「%1」想发送 %2 个文件（共 %3）给你。")
+                    .arg(peerName)
+                    .arg(fileCount)
+                    .arg(ClipTransferDialog::formatBytes(quint64(totalBytes))));
+    box.setInformativeText(tr("接收后文件会存到收件目录，并放进剪贴板，可以直接粘贴。"));
+    box.setDetailedText(preview);
+    box.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+    box.setDefaultButton(QMessageBox::Yes);
+    if (auto *yes = box.button(QMessageBox::Yes); yes != nullptr)
+      yes->setText(tr("接收"));
+    if (auto *no = box.button(QMessageBox::No); no != nullptr)
+      no->setText(tr("拒绝"));
+
+    if (box.exec() != QMessageBox::Yes) {
+      m_liteKvmController->rejectIncomingFiles();
+      return;
+    }
+  }
+
+  beginTransferUi(false, peerName, quint64(totalBytes));
+  m_liteKvmController->acceptIncomingFiles();
+}
+
+void MainWindow::onFileProgressChanged(quint64 bytesDone, quint64 bytesTotal, bool outgoing)
+{
+  Q_UNUSED(outgoing)
+  if (m_clipTransferDialog && m_clipTransferDialog->isVisible())
+    m_clipTransferDialog->setProgress(bytesDone, bytesTotal);
+}
+
+void MainWindow::onFileTransferCompleted(const QStringList &localPaths, bool outgoing, const QString &transferId)
+{
+  Q_UNUSED(transferId)
+
+  QString message;
+  if (outgoing) {
+    message = tr("✅ 已发送到「%1」（共 %2）")
+                  .arg(m_clipTransferPeer, ClipTransferDialog::formatBytes(quint64(m_clipTransferTotalBytes)));
+  } else {
+    const QString folder = localPaths.isEmpty() ? QString() : QFileInfo(localPaths.first()).absolutePath();
+    message = folder.isEmpty() ? tr("✅ 已接收 %1 个文件").arg(localPaths.size())
+                               : tr("✅ 已接收 %1 个文件到 %2").arg(localPaths.size()).arg(folder);
+
+    // 收到的文件直接挂到本机剪贴板，用户 Ctrl+V 就能用
+    if (m_liteKvmController && !localPaths.isEmpty())
+      m_liteKvmController->copyFilesToClipboard(localPaths);
+  }
+
+  finishTransferUi(message, false);
+}
+
+void MainWindow::onFileTransferFailed(const QString &message, bool outgoing)
+{
+  finishTransferUi(tr("❌ %1：%2").arg(outgoing ? tr("发送失败") : tr("接收失败"), message), true);
+}
+
+void MainWindow::onFileTransferCancelled(bool outgoing)
+{
+  cancelTransferUi(outgoing ? tr("已取消发送") : tr("已取消接收"));
+}
+
+void MainWindow::onFileClipboardError(const QString &message)
+{
+  qWarning().noquote() << "file clipboard error:" << message;
+  notifyUser(tr("文件剪贴板：%1").arg(message));
+}
+
+void MainWindow::beginTransferUi(bool outgoing, const QString &peerName, quint64 totalBytes)
+{
+  m_clipTransferOutgoing = outgoing;
+  m_clipTransferPeer = peerName;
+  m_clipTransferTotalBytes = qint64(totalBytes);
+
+  if (!ClipTransferDialog::needsProgressDialog(totalBytes)) {
+    // 小文件不弹窗口（计划只要求 >100MB 才有进度条），托盘/状态栏提示一下即可
+    notifyUser(
+        outgoing ? tr("正在发送 %1 到「%2」…").arg(ClipTransferDialog::formatBytes(totalBytes), peerName)
+                 : tr("正在接收来自「%1」的 %2 …").arg(peerName, ClipTransferDialog::formatBytes(totalBytes))
+    );
+    return;
+  }
+
+  if (!m_clipTransferDialog) {
+    m_clipTransferDialog = new ClipTransferDialog(this);
+    connect(m_clipTransferDialog, &ClipTransferDialog::cancelRequested, this, [this] {
+      if (m_liteKvmController)
+        m_liteKvmController->cancelFileTransfer();
+      notifyUser(tr("正在取消文件传输…"));
+    });
+  }
+
+  m_clipTransferDialog->begin(
+      outgoing ? ClipTransferDialog::Direction::Send : ClipTransferDialog::Direction::Receive, peerName, totalBytes
+  );
+  m_clipTransferDialog->show();
+  m_clipTransferDialog->raise();
+}
+
+void MainWindow::finishTransferUi(const QString &message, bool failed)
+{
+  if (m_clipTransferDialog && m_clipTransferDialog->isVisible()) {
+    if (failed)
+      m_clipTransferDialog->finishFailed(message);
+    else
+      m_clipTransferDialog->finishCompleted(message);
+    return;
+  }
+  notifyUser(message);
+}
+
+void MainWindow::cancelTransferUi(const QString &message)
+{
+  if (m_clipTransferDialog && m_clipTransferDialog->isVisible()) {
+    m_clipTransferDialog->finishCancelled(message);
+    return;
+  }
+  notifyUser(message);
+}
+
+void MainWindow::notifyUser(const QString &message)
+{
+  m_logDock->appendLine(message);
+
+  if (m_statusBar)
+    m_statusBar->showMessage(message, 5000);
+
+  if (m_trayIcon && m_trayIcon->isVisible())
+    m_trayIcon->showMessage(kAppName, message, QSystemTrayIcon::Information, 5000);
+}
+
+qint64 MainWindow::localFilesSize(const QStringList &paths)
+{
+  qint64 total = 0;
+  for (const QString &path : paths) {
+    const QFileInfo info(path);
+    if (info.isDir()) {
+      QDirIterator it(path, QDir::Files | QDir::NoSymLinks | QDir::Hidden, QDirIterator::Subdirectories);
+      while (it.hasNext()) {
+        it.next();
+        total += it.fileInfo().size();
+      }
+    } else {
+      total += info.size();
+    }
+  }
+  return total;
+}
+

@@ -333,7 +333,9 @@ private Q_SLOTS:
 
     QCOMPARE(senderFailureSpy.count(), 0);
     QCOMPARE(receiverFailureSpy.count(), 0);
-    QCOMPARE(int(sender.state()), int(ClipFileTransfer::State::Completed));
+    // 发送方要处理完接收方的 DONE 帧才会进 Completed，需要额外一轮事件循环；
+    // 同步采样状态会让这个用例约 1/5 概率误报失败，所以轮询等待。
+    QTRY_COMPARE_WITH_TIMEOUT(int(sender.state()), int(ClipFileTransfer::State::Completed), 5000);
     QCOMPARE(int(receiver.state()), int(ClipFileTransfer::State::Completed));
     QCOMPARE(sender.progress().percent(), 100);
 

@@ -251,6 +251,10 @@ QVariant Settings::defaultValue(const QString &key)
   if (key == Server::ClipboardSize)
     return 3; // 3 MiB
 
+  // 跨机文件剪贴板单次上限，默认 2 GiB（对齐 litekvm::kClipDefaultMaxTransferBytes）
+  if (key == LiteKvm::FileClipboardMaxMb)
+    return 2048;
+
   return QVariant();
 }
 

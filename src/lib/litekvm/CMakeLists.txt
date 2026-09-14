@@ -25,10 +25,14 @@ add_library(litekvm STATIC
   ClipFileChunk.h
   ClipFileTransfer.cpp
   ClipFileTransfer.h
+  ClipFileService.cpp
+  ClipFileService.h
+  ClipboardFileBridge.cpp
+  ClipboardFileBridge.h
 )
 
 target_include_directories(litekvm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(litekvm
-  PUBLIC common OpenSSL::Crypto Qt6::Core Qt6::Network
+  PUBLIC common OpenSSL::Crypto Qt6::Core Qt6::Network Qt6::Gui
 )

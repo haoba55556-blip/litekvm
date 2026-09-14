@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <QElapsedTimer>
 #include <QMainWindow>
 #include <QProcess>
 #include <QRegularExpression>
@@ -38,6 +39,7 @@ class MainWindow;
 }
 
 namespace deskflow::gui {
+class ClipTransferDialog;
 class LiteKvmController;
 class NearbyPanel;
 namespace ipc {
@@ -151,6 +153,24 @@ private:
 
   bool canRunCore() const;
 
+  // ---- 跨机文件剪贴板 ----
+  void setupFileClipboard();
+  void applyFileClipboardSettings();
+  void requestSendFiles();
+  void sendFiles(const QStringList &paths, bool fromClipboard);
+  void onLocalFilesCopied(const QStringList &paths);
+  void onFileOfferReceived(const QString &peerName, const QStringList &fileNames, qint64 totalBytes, int fileCount);
+  void onFileProgressChanged(quint64 bytesDone, quint64 bytesTotal, bool outgoing);
+  void onFileTransferCompleted(const QStringList &localPaths, bool outgoing, const QString &transferId);
+  void onFileTransferFailed(const QString &message, bool outgoing);
+  void onFileTransferCancelled(bool outgoing);
+  void onFileClipboardError(const QString &message);
+  void beginTransferUi(bool outgoing, const QString &peerName, quint64 totalBytes);
+  void finishTransferUi(const QString &message, bool failed);
+  void cancelTransferUi(const QString &message);
+  void notifyUser(const QString &message);
+  static qint64 localFilesSize(const QStringList &paths);
+
   /**
    * @brief trustedFingerprintDatabase get the FingerprintDatabase for the trusted clients or trusted servers.
    * @return The path to the trusted fingerprint file
@@ -190,6 +210,16 @@ private:
   StatusBar *m_statusBar = nullptr;
   deskflow::gui::LiteKvmController *m_liteKvmController = nullptr;
 
+  // 跨机文件剪贴板
+  deskflow::gui::ClipTransferDialog *m_clipTransferDialog = nullptr;
+  bool m_fileClipboardEnabled = false;
+  bool m_filePromptShowing = false;
+  bool m_clipTransferOutgoing = false;
+  QString m_clipTransferPeer;
+  qint64 m_clipTransferTotalBytes = 0;
+  QString m_lastCopiedPaths;
+  QElapsedTimer m_lastCopiedAt;
+
   // Window Menu
   QMenu *m_menuFile = nullptr;
   QMenu *m_menuEdit = nullptr;
@@ -207,6 +237,7 @@ private:
   QAction *m_actionRestartCore = nullptr;
   QAction *m_actionStopCore = nullptr;
   QAction *m_actionShowHelp = nullptr;
+  QAction *m_actionSendFiles = nullptr;
 
   // Network monitoring
   NetworkMonitor *m_networkMonitor = nullptr;

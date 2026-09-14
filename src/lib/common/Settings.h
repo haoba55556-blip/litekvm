@@ -95,6 +95,13 @@ public:
     inline static const auto ToFile = QStringLiteral("log/toFile");
     inline static const auto GuiDebug = QStringLiteral("log/guiDebug");
   };
+  struct LiteKvm
+  {
+    inline static const auto EnableFileClipboard = QStringLiteral("litekvm/enableFileClipboard");
+    inline static const auto FileClipboardAutoSend = QStringLiteral("litekvm/fileClipboardAutoSend");
+    inline static const auto FileClipboardAutoAccept = QStringLiteral("litekvm/fileClipboardAutoAccept");
+    inline static const auto FileClipboardMaxMb = QStringLiteral("litekvm/fileClipboardMaxMb");
+  };
   struct Security
   {
     inline static const auto CheckPeers = QStringLiteral("security/checkPeerFingerprints");
@@ -247,6 +254,7 @@ private:
     , QStringLiteral("core")
     , QStringLiteral("daemon")
     , QStringLiteral("gui")
+    , QStringLiteral("litekvm")
     , QStringLiteral("log")
     , QStringLiteral("security")
     , QStringLiteral("server")
@@ -296,6 +304,10 @@ private:
     , Gui::ShownServerFirstStartMessage
     , Gui::ShowVersionInTitle
     , Gui::IgnoreMissingKeyboardLayouts
+    , LiteKvm::EnableFileClipboard
+    , LiteKvm::FileClipboardAutoAccept
+    , LiteKvm::FileClipboardAutoSend
+    , LiteKvm::FileClipboardMaxMb
     , Security::Certificate
     , Security::CheckPeers
     , Security::KeySize
@@ -335,6 +347,8 @@ private:
     , Client::InvertXScroll
     , Log::ToFile
     , Log::GuiDebug
+    , LiteKvm::FileClipboardAutoAccept
+    , LiteKvm::FileClipboardAutoSend
     , Server::DefaultLockToComputerState
     , Server::DisableLockToComputer
     , Server::EnableHeatbeat
@@ -352,6 +366,7 @@ private:
     , Gui::CloseReminder
     , Gui::LogExpanded
     , Gui::SymbolicTrayIcon
+    , LiteKvm::EnableFileClipboard
     , Security::TlsEnabled
     , Security::CheckPeers
     , Server::EnableClipboard

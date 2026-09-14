@@ -63,6 +63,9 @@ private:
   /// @brief update if the log level warning is shown
   void logLevelChanged();
 
+  /// @brief 文件剪贴板选项：勾上「文件剪贴板」才启用下面的子选项。
+  void updateFileClipboardControls();
+
   /**
    * @brief isModified
    * @return true when any client settings in the gui do not match the stored settings values.

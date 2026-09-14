@@ -28,3 +28,17 @@ create_test(
   SOURCE ClipFileTransferTests.cpp
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/litekvm"
 )
+
+create_test(
+  NAME ClipFileServiceTests
+  DEPENDS litekvm
+  SOURCE ClipFileServiceTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/litekvm"
+)
+
+create_test(
+  NAME ClipboardFileBridgeTests
+  DEPENDS litekvm
+  SOURCE ClipboardFileBridgeTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/litekvm"
+)
