@@ -20,6 +20,7 @@
 #include "dialogs/ClientConfigDialog.h"
 #include "dialogs/FingerprintDialog.h"
 #include "dialogs/HelpDialog.h"
+#include "dialogs/ProSettingsDialog.h"
 #include "dialogs/ServerConfigDialog.h"
 #include "dialogs/SettingsDialog.h"
 
@@ -33,6 +34,7 @@
 #include "gui/ipc/DaemonIpcClient.h"
 #include "gui/widgets/LogDock.h"
 #include "gui/widgets/CollapsiblePanel.h"
+#include "litekvm/AutoStart.h"
 #include "net/FingerprintDatabase.h"
 #include "widgets/StatusBar.h"
 
@@ -83,6 +85,7 @@ MainWindow::MainWindow()
       m_actionTrayQuit{new QAction(this)},
       m_actionRestore{new QAction(this)},
       m_actionSettings{new QAction(this)},
+      m_actionProSettings{new QAction(this)},
       m_actionStartCore{new QAction(this)},
       m_actionRestartCore{new QAction(this)},
       m_actionStopCore{new QAction(this)},
@@ -125,6 +128,9 @@ MainWindow::MainWindow()
   m_actionSettings->setIcon(QIcon::fromTheme(QStringLiteral("configure")));
   m_actionSettings->setMenuRole(QAction::PreferencesRole);
   m_actionSettings->setShortcut(QKeySequence::Preferences);
+
+  m_actionProSettings->setIcon(QIcon::fromTheme(QStringLiteral("preferences-system")));
+  m_actionProSettings->setMenuRole(QAction::NoRole);
 
   m_actionStartCore->setIcon(QIcon::fromTheme(QStringLiteral("system-run")));
   m_actionStartCore->setMenuRole(QAction::NoRole);
@@ -178,6 +184,10 @@ MainWindow::MainWindow()
   applyConfig();
   m_statusBar->setSecurityIcon(TlsUtility::isEnabled());
   restoreWindow();
+
+  // LiteKVM Pro: restore the persisted auto-connect preference
+  if (Settings::value(QStringLiteral("litekvm/autoConnect")).toBool())
+    m_liteKvmController->setAutoConnectEnabled(true);
 
 #ifdef Q_OS_MACOS
   // Route native quits (Cmd+Q / Apple menu Quit / Dock "Quit") to the usual close-to-tray decision instead.
@@ -351,6 +361,7 @@ void MainWindow::connectSlots()
   connect(m_actionTrayQuit, &QAction::triggered, this, &MainWindow::close);
   connect(m_actionRestore, &QAction::triggered, this, &MainWindow::showAndActivate);
   connect(m_actionSettings, &QAction::triggered, this, &MainWindow::openSettings);
+  connect(m_actionProSettings, &QAction::triggered, this, &MainWindow::openProSettings);
   connect(m_actionStartCore, &QAction::triggered, this, &MainWindow::startCore);
   connect(m_actionRestartCore, &QAction::triggered, this, &MainWindow::resetCore);
   connect(m_actionStopCore, &QAction::triggered, this, &MainWindow::stopCore);
@@ -567,6 +578,12 @@ void MainWindow::openSettings()
   }
 }
 
+void MainWindow::openProSettings()
+{
+  ProSettingsDialog dialog(m_liteKvmController, this);
+  dialog.exec();
+}
+
 void MainWindow::resetCore()
 {
   m_coreProcess.restart();
@@ -706,7 +723,11 @@ void MainWindow::serverConnectionConfigureClient(const QString &clientName)
 
 void MainWindow::open()
 {
-  if (!Settings::value(Settings::Gui::Autohide).toBool())
+  // LiteKVM Pro: launched from the OS boot entry (--autostart) hides straight
+  // to tray, mirroring the Autohide branch below.
+  const bool autostartLaunch = litekvm::AutoStart::isAutostartLaunch();
+
+  if (!Settings::value(Settings::Gui::Autohide).toBool() && !autostartLaunch)
     showAndActivate();
   else if (deskflow::platform::isMac())
     // macOS to call hide after this function ends
@@ -752,6 +773,7 @@ void MainWindow::createMenuBar()
   m_menuFile->addAction(m_actionQuit);
 
   m_menuEdit->addAction(m_actionSettings);
+  m_menuEdit->addAction(m_actionProSettings);
 
   m_menuView->addAction(m_logDock->toggleViewAction());
 
@@ -1146,6 +1168,7 @@ void MainWindow::updateText()
   //: %1 will be the replaced with the appname
   m_actionRestore->setText(tr("&Open %1").arg(kAppName));
   m_actionSettings->setText(tr("&Preferences"));
+  m_actionProSettings->setText(tr("LiteKVM Pro 设置…"));
   m_actionStartCore->setText(tr("&Start"));
   m_actionRestartCore->setText(tr("Rest&art"));
   m_actionStopCore->setText(tr("S&top"));

@@ -4,6 +4,7 @@
 // layer (identity, discovery, advertiser, pairing, file clipboard).
 #include "LiteKvmController.h"
 
+#include "common/Settings.h"
 #include "litekvm/ClipFileService.h"
 #include "litekvm/ClipFileTransfer.h"
 #include "litekvm/ClipboardFileBridge.h"
@@ -50,6 +51,11 @@ LiteKvmController::LiteKvmController(QObject *parent) : QObject(parent)
 
   m_pairing->listen(pairingPort);
 
+  // AutoConnect: paired peer online -> autoSessionRequested (minimal wiring)
+  m_autoConnect = new litekvm::AutoConnect(*m_identity, *m_trust, *m_discovery, this);
+  connect(m_autoConnect, &litekvm::AutoConnect::autoConnectRequested, this,
+          &LiteKvmController::autoSessionRequested);
+
   setupFileClipboard();
 }
 
@@ -61,6 +67,14 @@ QString LiteKvmController::deviceName() const
 void LiteKvmController::setDeviceName(const QString &name)
 {
   // identity rename persists on next save; discovery TXT refreshes via announce
+}
+
+void LiteKvmController::setAutoConnectEnabled(bool enabled)
+{
+  if (m_autoConnect)
+    m_autoConnect->setEnabled(enabled);
+  Settings::setValue(QStringLiteral("litekvm/autoConnect"), enabled);
+  Settings::save(false);
 }
 
 void LiteKvmController::startPairing(const QString &deviceId)

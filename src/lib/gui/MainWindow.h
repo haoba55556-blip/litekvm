@@ -105,6 +105,7 @@ private:
   void openAboutDialog();
   void openGetNewVersionUrl() const;
   void openSettings();
+  void openProSettings();
   void startCore();
   void stopCore();
   bool saveServerConfig();
@@ -237,6 +238,7 @@ private:
   QAction *m_actionTrayQuit = nullptr;
   QAction *m_actionRestore = nullptr;
   QAction *m_actionSettings = nullptr;
+  QAction *m_actionProSettings = nullptr;
   QAction *m_actionStartCore = nullptr;
   QAction *m_actionRestartCore = nullptr;
   QAction *m_actionStopCore = nullptr;

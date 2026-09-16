@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0
 #pragma once
 
+#include "litekvm/AutoConnect.h"
 #include "litekvm/DeviceIdentity.h"
 #include "litekvm/DiscoveryService.h"
 #include "litekvm/MdnsAdvertiser.h"
@@ -100,10 +101,20 @@ public Q_SLOTS:
   /// 把收到的文件放到本机剪贴板上，方便用户直接 Ctrl+V。
   void copyFilesToClipboard(const QStringList &paths);
 
+  /// 开关「自动连接已配对设备」并持久化到 QSettings（litekvm/autoConnect）。
+  void setAutoConnectEnabled(bool enabled);
+  [[nodiscard]] bool isAutoConnectEnabled() const
+  {
+    return m_autoConnect && m_autoConnect->enabled();
+  }
+
 Q_SIGNALS:
   void peerDiscovered(const litekvm::DiscoveredPeer &peer);
   void peerUpdated(const litekvm::DiscoveredPeer &peer);
   void peerOffline(const QString &deviceId);
+
+  /// AutoConnect 发现可自动连接的已配对设备时触发（最小可用版：直接转发）。
+  void autoSessionRequested(const litekvm::DiscoveredPeer &peer);
   void pairChallenge(const QString &peerName, const QString &peerFingerprint, const QString &expectedCode);
   void pairingSucceeded(const QString &deviceId, const QString &name);
   void pairingFailed(litekvm::PairingService::Error error);
@@ -133,6 +144,7 @@ private:
   litekvm::DiscoveryService *m_discovery = nullptr;
   litekvm::MdnsAdvertiser *m_advertiser = nullptr;
   litekvm::PairingService *m_pairing = nullptr;
+  litekvm::AutoConnect *m_autoConnect = nullptr;
 
   litekvm::ClipFileService *m_clipFile = nullptr;
   litekvm::ClipboardFileBridge *m_clipBridge = nullptr;
