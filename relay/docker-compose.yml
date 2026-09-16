@@ -1,52 +1,14 @@
+# SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
 # SPDX-License-Identifier: GPL-2.0
-# 一条命令起：cp .env.example .env && 填好 RELAY_TOKENS && docker compose up -d
+# LiteKVM self-hosted relay — docker compose up -d
 services:
   relay:
     build: .
-    image: litekvm-relay:0.1.0
+    image: litekvm/relay:latest
     container_name: litekvm-relay
-    restart: unless-stopped
-
     ports:
-      # 中继端口：需要公网可达
-      - "25902:25902"
-      # 健康检查/指标：只绑本机，公网不暴露
-      - "127.0.0.1:8080:8080"
-
-    environment:
-      RELAY_PORT: "25902"
-      RELAY_HEALTH_PORT: "8080"
-      RELAY_AUTH_MODE: "static"
-      # 令牌来自两端设备配对时派生的共享密钥（见 README《令牌从哪来》）
-      RELAY_TOKENS: "${RELAY_TOKENS:?请在 .env 里设置 RELAY_TOKENS（或用 RELAY_TOKENS_FILE 挂载文件）}"
-      RELAY_ROOM_MAX_PEERS: "2"
-      # 同一 IP 在窗口期内鉴权失败上限，超过则临时熔断
-      RELAY_MAX_AUTH_FAILURES: "10"
-      RELAY_AUTH_FAILURE_WINDOW_MS: "60000"
-      RELAY_LOG_LEVEL: "info"
-      # 默认关闭：可选的优雅停机 HTTP 接口（仅回环地址可用）
-      # RELAY_ENABLE_HTTP_SHUTDOWN: "1"
-
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - "require('http').get({host:'127.0.0.1',port:process.env.RELAY_HEALTH_PORT||8080,path:'/health'},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
-
-    # 最小权限：只读根文件系统 + 禁止提权
+      - "25910:25910"
+    restart: unless-stopped
     read_only: true
-    tmpfs:
-      - /tmp
     security_opt:
       - no-new-privileges:true
-
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
