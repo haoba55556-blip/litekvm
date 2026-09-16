@@ -50,3 +50,5 @@ CMakeFiles/*
 **/[cC]laude.[mM][dD]
 **/CLAUDE.[mM][dD]
 .codegraph/
+build_deskflow.log
+testout.txt
