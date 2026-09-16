@@ -724,6 +724,10 @@ Additionally, check you are able to %1 the server config file: %2</source>
         <source>日志</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>LiteKVM Pro 设置…</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>NewScreenWidget</name>
@@ -1723,6 +1727,21 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>连接</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>deskflow::gui::ProSettingsDialog</name>
+    <message>
+        <source>LiteKVM Pro 设置</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>开机自动启动（启动后隐藏到托盘）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>自动连接已配对设备</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

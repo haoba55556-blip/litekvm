@@ -15,8 +15,6 @@ add_library(litekvm STATIC
   DeviceIdentity.h
   PairingCrypto.cpp
   PairingCrypto.h
-  RelayLink.cpp
-  RelayLink.h
   RoleNegotiation.cpp
   RoleNegotiation.h
   TrustStore.cpp

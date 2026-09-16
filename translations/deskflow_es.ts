@@ -724,6 +724,10 @@ Además, verifique que puede %1 el archivo de configuración del servidor: %2</t
         <source>日志</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>LiteKVM Pro 设置…</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>NewScreenWidget</name>
@@ -1722,6 +1726,21 @@ Al habilitar esta opción, se deshabilitará la interfaz gráfica de usuario (GU
     </message>
     <message>
         <source>连接</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>deskflow::gui::ProSettingsDialog</name>
+    <message>
+        <source>LiteKVM Pro 设置</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>开机自动启动（启动后隐藏到托盘）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>自动连接已配对设备</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
