@@ -135,6 +135,12 @@ void DiscoveryService::ingestTxtRecord(const QMap<QString, QString> &txt, const 
     Q_EMIT peerUpdated(p);
 }
 
+void DiscoveryService::ingestTxtForTest(const QMap<QString, QString> &txt, const QString &host,
+                                        quint16 port)
+{
+  ingestTxtRecord(txt, host, port, true);
+}
+
 void DiscoveryService::pruneStale()
 {
   const qint64 now = QDateTime::currentMSecsSinceEpoch();

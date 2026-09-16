@@ -7,10 +7,18 @@
 find_package(OpenSSL ${REQUIRED_OPENSSL_VERSION} REQUIRED COMPONENTS Crypto)
 
 add_library(litekvm STATIC
+  AutoConnect.cpp
+  AutoConnect.h
+  AutoStart.cpp
+  AutoStart.h
   DeviceIdentity.cpp
   DeviceIdentity.h
   PairingCrypto.cpp
   PairingCrypto.h
+  RelayLink.cpp
+  RelayLink.h
+  RoleNegotiation.cpp
+  RoleNegotiation.h
   TrustStore.cpp
   TrustStore.h
   DiscoveryService.cpp

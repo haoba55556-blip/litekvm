@@ -42,3 +42,10 @@ create_test(
   SOURCE ClipboardFileBridgeTests.cpp
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/litekvm"
 )
+
+create_test(
+  NAME ProFeatureTests
+  DEPENDS litekvm
+  SOURCE ProFeatureTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/litekvm"
+)

@@ -67,6 +67,10 @@ public:
   std::vector<DiscoveredPeer> peers() const;
   std::optional<DiscoveredPeer> peer(const QString &deviceId) const;
 
+  /// TEST-ONLY: inject a peer announcement as if it had arrived over mDNS.
+  /// Thin public wrapper around ingestTxtRecord(); production paths never call it.
+  void ingestTxtForTest(const QMap<QString, QString> &txt, const QString &host, quint16 port);
+
 Q_SIGNALS:
   void peerDiscovered(const litekvm::DiscoveredPeer &peer);
   void peerUpdated(const litekvm::DiscoveredPeer &peer);
