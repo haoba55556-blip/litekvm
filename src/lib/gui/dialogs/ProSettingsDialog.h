@@ -30,6 +30,7 @@ private:
   LiteKvmController *m_controller = nullptr;
   QCheckBox *m_chkAutoStart = nullptr;
   QCheckBox *m_chkAutoConnect = nullptr;
+  QCheckBox *m_chkCloseToTray = nullptr;
 };
 
 } // namespace deskflow::gui

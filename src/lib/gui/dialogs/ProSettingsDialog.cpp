@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-2.0
 // ProSettingsDialog — LiteKVM Pro 设置（纯代码 UI）：
 // 开机自动启动（litekvm::AutoStart）、自动连接已配对设备（controller
-// 持久化键 litekvm/autoConnect）。构造时从当前值初始化，accept 时写回。
+// 持久化键 litekvm/autoConnect）、关闭窗口最小化到托盘（gui/closeToTray）。
+// 构造时从当前值初始化，accept 时写回。
 #include "ProSettingsDialog.h"
 
 #include "LiteKvmController.h"
@@ -32,9 +33,15 @@ ProSettingsDialog::ProSettingsDialog(LiteKvmController *controller, QWidget *par
   if (m_controller)
     m_chkAutoConnect->setChecked(m_controller->isAutoConnectEnabled());
 
+  // 关窗最小化到托盘（复用 Settings::Gui::CloseToTray 键，maybeHideToTray
+  // 直接读这个键；默认 true 符合键鼠共享类工具的常驻预期）
+  m_chkCloseToTray = new QCheckBox(tr("关闭窗口时最小化到托盘（保持连接）"), this);
+  m_chkCloseToTray->setChecked(Settings::value(Settings::Gui::CloseToTray).toBool());
+
   auto *formLayout = new QFormLayout;
   formLayout->addRow(m_chkAutoStart);
   formLayout->addRow(m_chkAutoConnect);
+  formLayout->addRow(m_chkCloseToTray);
 
   auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
   connect(buttonBox, &QDialogButtonBox::accepted, this, &ProSettingsDialog::accept);
@@ -54,6 +61,8 @@ void ProSettingsDialog::accept()
     m_controller->setAutoConnectEnabled(m_chkAutoConnect->isChecked());
   else
     Settings::setValue(QStringLiteral("litekvm/autoConnect"), m_chkAutoConnect->isChecked());
+
+  Settings::setValue(Settings::Gui::CloseToTray, m_chkCloseToTray->isChecked());
 
   QDialog::accept();
 }

@@ -327,6 +327,21 @@ void MainWindow::reworkPanels()
       }
     }
   });
+
+  // --- LiteKVM Pro: 自动连接已配对设备（开机自启/上线即连） ---
+  // 复用一键连接的同一套逻辑；不弹窗不抢焦点，纯后台接通
+  connect(m_liteKvmController, &LiteKvmController::autoSessionRequested,
+          this, [this](const litekvm::DiscoveredPeer &peer) {
+    for (const auto &target : m_liteKvmController->clipTargets()) {
+      if (target.deviceId == peer.deviceId && !target.host.isEmpty()) {
+        ui->rbModeClient->setChecked(true);
+        ui->lineHostname->setText(target.host);
+        if (!m_coreProcess.isStarted())
+          startCore();
+        break;
+      }
+    }
+  });
 }
 
 //////////////////////////////////////////////////////////////////////////////

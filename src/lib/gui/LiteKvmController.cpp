@@ -55,6 +55,10 @@ LiteKvmController::LiteKvmController(QObject *parent) : QObject(parent)
   m_autoConnect = new litekvm::AutoConnect(*m_identity, *m_trust, *m_discovery, this);
   connect(m_autoConnect, &litekvm::AutoConnect::autoConnectRequested, this,
           &LiteKvmController::autoSessionRequested);
+  // restore persisted toggle — without this the switch silently resets to
+  // "off" on every launch and auto-connect never runs (bug found 2026-09-20)
+  if (Settings::value(QStringLiteral("litekvm/autoConnect")).toBool())
+    m_autoConnect->setEnabled(true);
 
   setupFileClipboard();
 }
