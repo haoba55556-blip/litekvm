@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // Integration test: two real PairingService instances (server B + client A)
 // pair over loopback TCP using the spec §4 message flow.
 #include "../../lib/litekvm/DeviceIdentity.h"

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKvmController — glue between MainWindow and the litekvm zero-config
 // layer (identity, discovery, advertiser, pairing, file clipboard).
 #include "LiteKvmController.h"

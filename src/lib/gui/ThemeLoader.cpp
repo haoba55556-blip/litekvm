@@ -1,7 +1,7 @@
 /*
  * LiteKVM — zero-config keyboard/mouse sharing
  * SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
- * SPDX-License-Identifier: GPL-2.0
+ * SPDX-License-Identifier: GPL-2.0-only
  *
  * ThemeLoader — installs the LiteKVM dark theme (see litekvm-theme-tokens.md).
  */

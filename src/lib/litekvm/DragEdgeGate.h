@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // When an OLE/Qt drag enters the screen edge, start the transfer immediately.
 //
 // The pointer crosses into the other computer in well under 150 ms. A dwell

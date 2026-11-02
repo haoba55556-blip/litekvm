@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM pairing crypto — nonce generation, PAIR_CODE derivation, HMAC verify.
 //
 // Spec: docs/discovery-pairing-spec.md §4 (litekvm-design repo)

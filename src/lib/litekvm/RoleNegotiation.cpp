@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // RoleNegotiation — elects one server among N paired peers (feature 3:
 // multi-machine sharing). Election rule per spec §2: lexicographically
 // smallest online device_id wins; 5s hysteresis prevents flapping on

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // LayoutSync unit tests: JSON roundtrip, LWW-by-rev convergence.
 #include "../../lib/litekvm/LayoutSync.h"
 

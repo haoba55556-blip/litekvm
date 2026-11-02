@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM pairing code derivation — both sides independently compute the same
 // 6-digit PIN from the exchanged nonces + both fingerprints.
 //

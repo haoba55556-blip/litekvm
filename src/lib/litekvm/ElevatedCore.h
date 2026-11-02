@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // Optional "run the core at highest privileges" via a scheduled task.
 //
 // An elevated interactive process can inject input into windows that were

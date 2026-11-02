@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+# SPDX-License-Identifier: GPL-2.0-only
 # LiteKVM GUI driver (UI Automation).
 # ASCII-ONLY FILE ON PURPOSE: PowerShell 5.1 reads .ps1 as ANSI/GBK when there is
 # no BOM, so any non-ASCII byte in this file corrupts parsing. CJK labels are

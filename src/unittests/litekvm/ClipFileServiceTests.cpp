@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // ClipFileService tests: two real services over loopback TCP — paired-device
 // handshake, one real chunked file transfer, rejection / busy / handshake
 // timeout / mid-transfer disconnect cleanup.

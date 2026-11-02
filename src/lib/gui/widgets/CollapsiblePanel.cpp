@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // CollapsiblePanel — clickable header + expandable content, instant toggle.
 
 #include "CollapsiblePanel.h"

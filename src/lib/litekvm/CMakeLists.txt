@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-# SPDX-License-Identifier: GPL-2.0
+# SPDX-License-Identifier: GPL-2.0-only
 
 # LiteKVM zero-config layer: device identity, trust store, pairing crypto,
 # mDNS discovery/advertising, PIN pairing protocol.

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // ProSettingsDialog — LiteKVM Pro 设置（纯代码 UI）：
 // 开机自动启动（litekvm::AutoStart）、自动连接已配对设备（controller
 // 持久化键 litekvm/autoConnect）、关闭窗口最小化到托盘（gui/closeToTray）。

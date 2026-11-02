@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // ClipFileTransfer unit tests: Qt-free framing/chunk plan/path guards, the
 // SHA-1 cross-checked against QCryptographicHash, plus a real loopback
 // TCP transfer between two ClipFileTransfer instances.

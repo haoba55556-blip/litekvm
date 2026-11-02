@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // ClipboardFileBridge unit tests: what counts as a "copied local files" mime,
 // URL <-> path conversion (Chinese names, spaces, percent-encoding, Windows
 // separators) and the self-write loop guard that stops two machines from

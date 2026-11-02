@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM cross-machine file clipboard — chunked file transfer over an
 // already paired (encrypted) data channel.
 //

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // NearbyPanel — "附近的电脑" side panel: live mDNS peer list + pairing actions.
 #include "NearbyPanel.h"
 

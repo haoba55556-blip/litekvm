@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM mDNS discovery — raw multicast-DNS listener for peer announcements.
 //
 // Qt 6.8 has no mDNS API (QDnsLookup is unicast-only), so discovery listens on

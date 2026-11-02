@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM cross-machine file clipboard — TCP transport for ClipFileTransfer.
 //
 // Spec: docs/plans/2026-08-25-litekvm-mvp.md Phase 4 Task 4.1 / 4.2

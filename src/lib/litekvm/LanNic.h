@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // Which IPv4 adapters may carry LiteKVM mDNS.
 //
 // A socket bound to 0.0.0.0 sends multicast on the default route only.

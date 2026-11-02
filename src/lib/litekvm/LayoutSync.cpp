@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM mesh layout sync — control-plane TCP/25902, LAYOUT_UPDATE flood,
 // last-write-wins by monotonic rev.
 //

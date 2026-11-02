@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM device identity — Ed25519 keypair, persistent device_id, fingerprint.
 //
 // Spec: docs/discovery-pairing-spec.md §2 (litekvm-design repo)

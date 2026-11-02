@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM trust store — persisted list of paired devices.
 //
 // Spec: docs/discovery-pairing-spec.md §6 (litekvm-design repo)

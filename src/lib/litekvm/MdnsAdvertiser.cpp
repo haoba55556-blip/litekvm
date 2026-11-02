@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM mDNS advertiser — raw multicast-DNS announce on UDP/5353.
 //
 // Qt 6.8 has browse-only public API, so publishing is implemented here with a

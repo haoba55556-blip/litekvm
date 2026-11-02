@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM pairing protocol over TCP/25901 — length-prefixed JSON frames.
 //
 // Both roles live here: server (displays PIN, accepts) and client (initiator,
