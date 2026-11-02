@@ -302,12 +302,15 @@ void MSWindowsDesks::fakeMouseButton(ButtonID button, bool press)
 
 void MSWindowsDesks::fakeMouseMove(int32_t x, int32_t y) const
 {
-  sendMessage(DESKFLOW_MSG_FAKE_MOVE, static_cast<WPARAM>(x), static_cast<LPARAM>(y));
+  // Do not wait. Waiting here serializes every sample on SendInput and is
+  // the stutter once the pointer is on the other computer. The desk thread
+  // keeps only the newest FAKE_MOVE.
+  sendMessage(DESKFLOW_MSG_FAKE_MOVE, static_cast<WPARAM>(x), static_cast<LPARAM>(y), false);
 }
 
 void MSWindowsDesks::fakeMouseRelativeMove(int32_t dx, int32_t dy) const
 {
-  sendMessage(DESKFLOW_MSG_FAKE_REL_MOVE, static_cast<WPARAM>(dx), static_cast<LPARAM>(dy));
+  sendMessage(DESKFLOW_MSG_FAKE_REL_MOVE, static_cast<WPARAM>(dx), static_cast<LPARAM>(dy), false);
 }
 
 void MSWindowsDesks::fakeMouseWheel(int32_t xDelta, int32_t yDelta) const
@@ -348,11 +351,12 @@ bool MSWindowsDesks::restoreRelativeCursorPosition(Desk *desk) const
   return true;
 }
 
-void MSWindowsDesks::sendMessage(UINT msg, WPARAM wParam, LPARAM lParam) const
+void MSWindowsDesks::sendMessage(UINT msg, WPARAM wParam, LPARAM lParam, bool wait) const
 {
   if (m_activeDesk != nullptr && m_activeDesk->m_window != nullptr) {
     PostThreadMessage(m_activeDesk->m_threadID, msg, wParam, lParam);
-    waitForDesk();
+    if (wait)
+      waitForDesk();
   }
 }
 
@@ -450,16 +454,45 @@ LRESULT CALLBACK MSWindowsDesks::secondaryDeskProc(HWND hwnd, UINT msg, WPARAM w
   return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
+#ifndef MOUSEEVENTF_VIRTUALDESK
+#define MOUSEEVENTF_VIRTUALDESK 0x4000
+#endif
+
 void MSWindowsDesks::deskMouseMove(int32_t x, int32_t y) const
 {
-  // when using absolute positioning with mouse_event(),
-  // the normalized device coordinates range over only
-  // the primary screen.
-  int32_t w = GetSystemMetrics(SM_CXSCREEN);
-  int32_t h = GetSystemMetrics(SM_CYSCREEN);
+  // Coordinates from the server are in this machine's virtual-screen space
+  // (SM_*VIRTUALSCREEN), which is not the primary monitor and is not always
+  // rooted at (0, 0). Mapping them onto SM_CXSCREEN makes the cursor jump
+  // and then "correct" on the next packet — that is the stutter after the
+  // pointer crosses. MOUSEEVENTF_VIRTUALDESK addresses the whole desktop.
+  int32_t originX = m_x;
+  int32_t originY = m_y;
+  int32_t w = m_w;
+  int32_t h = m_h;
+  if (w < 2)
+    w = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+  if (h < 2)
+    h = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+  if (w < 2)
+    w = GetSystemMetrics(SM_CXSCREEN);
+  if (h < 2)
+    h = GetSystemMetrics(SM_CYSCREEN);
+  if (w < 2)
+    w = 2;
+  if (h < 2)
+    h = 2;
+
+  const int32_t relX = x - originX;
+  const int32_t relY = y - originY;
+  auto clampNorm = [](int32_t value, int32_t span) -> DWORD {
+    if (value < 0)
+      value = 0;
+    if (value > span - 1)
+      value = span - 1;
+    return static_cast<DWORD>((65535.0f * value) / (span - 1) + 0.5f);
+  };
   send_mouse_input(
-      MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, (DWORD)((65535.0f * x) / (w - 1) + 0.5f),
-      (DWORD)((65535.0f * y) / (h - 1) + 0.5f), 0
+      MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, clampNorm(relX, w), clampNorm(relY, h), 0
   );
 }
 
@@ -734,13 +767,31 @@ void MSWindowsDesks::deskThread(const void *vdesk)
       }
       break;
 
-    case DESKFLOW_MSG_FAKE_MOVE:
-      deskMouseMove(static_cast<int32_t>(msg.wParam), static_cast<int32_t>(msg.lParam));
-      break;
+    case DESKFLOW_MSG_FAKE_MOVE: {
+      int32_t x = static_cast<int32_t>(msg.wParam);
+      int32_t y = static_cast<int32_t>(msg.lParam);
+      MSG extra;
+      while (PeekMessage(&extra, nullptr, DESKFLOW_MSG_FAKE_MOVE, DESKFLOW_MSG_FAKE_MOVE, PM_REMOVE)) {
+        x = static_cast<int32_t>(extra.wParam);
+        y = static_cast<int32_t>(extra.lParam);
+      }
+      deskMouseMove(x, y);
+      // Mouse motion does not complete a waitForDesk(). Signalling here lets
+      // the next key/button wait return before that message is processed.
+      continue;
+    }
 
-    case DESKFLOW_MSG_FAKE_REL_MOVE:
-      deskMouseRelativeMove(static_cast<int32_t>(msg.wParam), static_cast<int32_t>(msg.lParam));
-      break;
+    case DESKFLOW_MSG_FAKE_REL_MOVE: {
+      int32_t dx = static_cast<int32_t>(msg.wParam);
+      int32_t dy = static_cast<int32_t>(msg.lParam);
+      MSG extra;
+      while (PeekMessage(&extra, nullptr, DESKFLOW_MSG_FAKE_REL_MOVE, DESKFLOW_MSG_FAKE_REL_MOVE, PM_REMOVE)) {
+        dx += static_cast<int32_t>(extra.wParam);
+        dy += static_cast<int32_t>(extra.lParam);
+      }
+      deskMouseRelativeMove(dx, dy);
+      continue;
+    }
 
     case DESKFLOW_MSG_FAKE_WHEEL:
       // XXX -- add support for x-axis scrolling

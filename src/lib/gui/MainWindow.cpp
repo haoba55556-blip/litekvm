@@ -34,10 +34,14 @@
 #include "gui/ipc/DaemonIpcClient.h"
 #include "gui/widgets/LogDock.h"
 #include "gui/widgets/CollapsiblePanel.h"
+#include "gui/widgets/EdgeFileDrop.h"
 #include "litekvm/AutoStart.h"
+#include "litekvm/ClipboardFileBridge.h"
+#include "litekvm/DiscoveryService.h"
 #include "net/FingerprintDatabase.h"
 #include "widgets/StatusBar.h"
 
+#include <QDrag>
 #include <QAbstractButton>
 #include <QCheckBox>
 #include <QCloseEvent>
@@ -58,6 +62,7 @@
 #include <QRegularExpressionValidator>
 #include <QScreen>
 #include <QScrollBar>
+#include <QTimer>
 
 #include <memory>
 
@@ -328,20 +333,12 @@ void MainWindow::reworkPanels()
     }
   });
 
-  // --- LiteKVM Pro: 自动连接已配对设备（开机自启/上线即连） ---
-  // 复用一键连接的同一套逻辑；不弹窗不抢焦点，纯后台接通
-  connect(m_liteKvmController, &LiteKvmController::autoSessionRequested,
-          this, [this](const litekvm::DiscoveredPeer &peer) {
-    for (const auto &target : m_liteKvmController->clipTargets()) {
-      if (target.deviceId == peer.deviceId && !target.host.isEmpty()) {
-        ui->rbModeClient->setChecked(true);
-        ui->lineHostname->setText(target.host);
-        if (!m_coreProcess.isStarted())
-          startCore();
-        break;
-      }
-    }
-  });
+  // Signal is connected before setAutoConnectEnabled() restores the toggle,
+  // so the first peer evaluation has a listener.
+  connect(m_liteKvmController, &LiteKvmController::autoSessionRequested, this, &MainWindow::onAutoSessionRequested);
+
+  m_edgeDrop = new deskflow::gui::EdgeFileDrop(this);
+  connect(m_edgeDrop, &deskflow::gui::EdgeFileDrop::filesDragged, this, &MainWindow::onEdgeFilesDragged);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -515,6 +512,7 @@ void MainWindow::coreProcessError(CoreProcess::Error error)
 
 void MainWindow::startCore()
 {
+  m_autoConnectHold = false;
   // Save current IP state when server starts
   if (m_coreProcess.mode() == CoreMode::Server && Settings::value(Settings::Core::Interface).toString().isEmpty()) {
     m_serverStartIPs = NetworkMonitor::validAddresses();
@@ -529,6 +527,8 @@ void MainWindow::startCore()
 void MainWindow::stopCore()
 {
   qDebug() << "stopping core process";
+  // User asked to stop. Don't let auto-connect start it again.
+  m_autoConnectHold = true;
   m_coreProcess.stop();
   m_actionStartCore->setVisible(true);
   m_actionRestartCore->setVisible(false);
@@ -773,6 +773,10 @@ void MainWindow::open()
   if (Settings::value(Settings::Gui::AutoStartCore).toBool()) {
     if (ui->rbModeClient->isChecked() && ui->lineHostname->text().isEmpty())
       return;
+    startCore();
+  } else if (Settings::value(QStringLiteral("litekvm/autoConnect")).toBool() && ui->rbModeServer->isChecked() &&
+             !m_coreProcess.isStarted()) {
+    // The other computer can only auto-connect if this one is already serving.
     startCore();
   }
 }
@@ -1096,6 +1100,10 @@ void MainWindow::coreProcessStateChanged(ProcessState state)
     }
 
   } else {
+    if (state == Stopped && !m_autoConnectHold && !m_autoConnectPeerId.isEmpty() && m_liteKvmController &&
+        m_liteKvmController->isAutoConnectEnabled()) {
+      m_liteKvmController->noteAutoSessionDown(m_autoConnectPeerId);
+    }
     disconnect(ui->btnToggleCore, &QPushButton::clicked, m_actionStopCore, &QAction::trigger);
     connect(ui->btnToggleCore, &QPushButton::clicked, m_actionStartCore, &QAction::trigger, Qt::UniqueConnection);
 
@@ -1486,9 +1494,92 @@ void MainWindow::applyFileClipboardSettings()
 
   m_liteKvmController->setMaxTransferBytes(maxBytes);
   m_liteKvmController->setFileClipboardEnabled(m_fileClipboardEnabled);
+  if (m_edgeDrop)
+    m_edgeDrop->setEnabled(m_fileClipboardEnabled);
 
   if (m_actionSendFiles)
     m_actionSendFiles->setEnabled(m_fileClipboardEnabled);
+}
+
+void MainWindow::onAutoSessionRequested(const litekvm::DiscoveredPeer &peer)
+{
+  if (!m_liteKvmController || !m_liteKvmController->isAutoConnectEnabled())
+    return;
+
+  const QString host = litekvm::DiscoveryService::normalizeHost(peer.host);
+  m_autoConnectPeerId = peer.deviceId;
+
+  // A machine the user put in server mode must keep serving. Flipping it to
+  // client leaves nobody listening. The client side connects to this host.
+  if (ui->rbModeServer->isChecked()) {
+    if (!m_coreProcess.isStarted())
+      startCore();
+    if (m_coreProcess.isStarted() || m_coreProcess.processState() == ProcessState::Starting ||
+        m_coreProcess.processState() == ProcessState::RetryPending)
+      m_liteKvmController->noteAutoSessionUp(peer.deviceId);
+    else
+      m_liteKvmController->noteAutoSessionDown(peer.deviceId);
+    return;
+  }
+
+  if (host.isEmpty()) {
+    m_liteKvmController->noteAutoSessionDown(peer.deviceId);
+    return;
+  }
+
+  const bool hostChanged = ui->lineHostname->text() != host;
+  ui->rbModeClient->setChecked(true);
+  if (hostChanged)
+    ui->lineHostname->setText(host);
+
+  if (ui->lineHostname->text().isEmpty()) {
+    m_liteKvmController->noteAutoSessionDown(peer.deviceId);
+    return;
+  }
+
+  if (!m_coreProcess.isStarted())
+    startCore();
+  else if (hostChanged)
+    m_coreProcess.restart();
+
+  m_liteKvmController->noteAutoSessionUp(peer.deviceId);
+}
+
+void MainWindow::onEdgeFilesDragged(const QStringList &paths)
+{
+  if (!m_fileClipboardEnabled || paths.isEmpty())
+    return;
+  // Drag is a gesture: don't stop to ask. The other side auto-accepts intent=drag.
+  sendFiles(paths, true, QStringLiteral("drag"));
+}
+
+void MainWindow::startRemoteDrag(const QStringList &paths)
+{
+  QWidget *source = m_edgeDrop ? m_edgeDrop->dragSource() : nullptr;
+  if (!source || paths.isEmpty())
+    return;
+  auto *mime = litekvm::ClipboardFileBridge::makeFileMimeData(paths);
+  if (!mime)
+    return;
+  QDrag drag(source);
+  drag.setMimeData(mime); // QDrag takes ownership
+  // Windows: QDrag::exec is DoDragDrop. The cursor is already on this machine.
+  drag.exec(Qt::CopyAction);
+}
+
+bool MainWindow::askVisible(const QString &title, const QString &text, const QString &detail)
+{
+  // Parenting on a hidden main window (close-to-tray) hides the dialog with it.
+  QMessageBox box(QMessageBox::Question, title, text, QMessageBox::Yes | QMessageBox::No);
+  box.setWindowFlag(Qt::WindowStaysOnTopHint, true);
+  box.setWindowModality(Qt::ApplicationModal);
+  if (!detail.isEmpty())
+    box.setDetailedText(detail);
+  if (auto *yes = box.button(QMessageBox::Yes))
+    yes->setText(tr("确定"));
+  if (auto *no = box.button(QMessageBox::No))
+    no->setText(tr("取消"));
+  return box.exec() == QMessageBox::Yes;
 }
 
 void MainWindow::requestSendFiles()
@@ -1507,7 +1598,7 @@ void MainWindow::requestSendFiles()
   sendFiles(paths, false);
 }
 
-void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard)
+void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const QString &intent)
 {
   if (!m_liteKvmController || !m_fileClipboardEnabled || paths.isEmpty())
     return;
@@ -1535,8 +1626,7 @@ void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard)
   const QList<LiteKvmController::ClipTarget> targets = m_liteKvmController->clipTargets();
   if (targets.isEmpty()) {
     if (fromClipboard) {
-      // 复制文件是日常操作，附近没有已配对的电脑时别打扰用户，记日志就行
-      m_logDock->appendLine(tr("剪贴板里有文件，但附近没有已配对的电脑，未发送。"));
+      notifyUser(tr("剪贴板里有文件，但附近没有已配对的电脑，未发送。"));
       return;
     }
     report(tr("附近没有已配对的电脑，先在「附近的电脑」里配对一台再发文件。"));
@@ -1564,23 +1654,21 @@ void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard)
     peerName = targets.at(index).name;
   }
 
-  const bool autoSend = fromClipboard && Settings::value(Settings::LiteKvm::FileClipboardAutoSend).toBool();
+  const bool drag = intent == QLatin1String("drag");
+  const bool autoSend = drag || (fromClipboard && Settings::value(Settings::LiteKvm::FileClipboardAutoSend).toBool());
   if (!autoSend) {
-    const auto answer = QMessageBox::question(
-        this, tr("发送文件"),
-        tr("要把 %1 个文件（共 %2）发送到「%3」吗？")
-            .arg(paths.size())
-            .arg(ClipTransferDialog::formatBytes(quint64(totalBytes)), peerName)
-    );
-    if (answer != QMessageBox::Yes)
+    const QString question = tr("要把 %1 个文件（共 %2）发送到「%3」吗？")
+                                 .arg(paths.size())
+                                 .arg(ClipTransferDialog::formatBytes(quint64(totalBytes)), peerName);
+    if (!askVisible(tr("发送文件"), question))
       return;
   }
 
   beginTransferUi(true, peerName, quint64(totalBytes));
-  m_liteKvmController->sendFilesToPeer(deviceId, paths);
+  m_liteKvmController->sendFilesToPeer(deviceId, paths, intent.isEmpty() ? QStringLiteral("clipboard") : intent);
 }
 
-void MainWindow::onLocalFilesCopied(const QStringList &paths)
+void MainWindow::onLocalFilesCopied(const QStringList &paths, const QString &intent)
 {
   if (!m_fileClipboardEnabled || paths.isEmpty() || m_filePromptShowing)
     return;
@@ -1594,12 +1682,12 @@ void MainWindow::onLocalFilesCopied(const QStringList &paths)
   m_lastCopiedAt.restart();
 
   m_filePromptShowing = true;
-  sendFiles(paths, true);
+  sendFiles(paths, true, intent.isEmpty() ? QStringLiteral("clipboard") : intent);
   m_filePromptShowing = false;
 }
 
 void MainWindow::onFileOfferReceived(const QString &peerName, const QStringList &fileNames, qint64 totalBytes,
-                                     int fileCount)
+                                     int fileCount, const QString &intent)
 {
   if (!m_liteKvmController)
     return;
@@ -1615,25 +1703,16 @@ void MainWindow::onFileOfferReceived(const QString &peerName, const QStringList 
   if (fileNames.size() > 8)
     preview += QStringLiteral("\n") + tr("…还有 %1 项").arg(fileNames.size() - 8);
 
-  const bool autoAccept = Settings::value(Settings::LiteKvm::FileClipboardAutoAccept).toBool();
+  m_incomingClipIntent = intent.isEmpty() ? QStringLiteral("clipboard") : intent;
+  // A drag is already in the user's hand; a confirmation dialog would cancel it.
+  const bool autoAccept =
+      m_incomingClipIntent == QLatin1String("drag") || Settings::value(Settings::LiteKvm::FileClipboardAutoAccept).toBool();
   if (!autoAccept) {
-    QMessageBox box(this);
-    box.setWindowTitle(tr("收到文件"));
-    box.setIcon(QMessageBox::Question);
-    box.setText(tr("「%1」想发送 %2 个文件（共 %3）给你。")
-                    .arg(peerName)
-                    .arg(fileCount)
-                    .arg(ClipTransferDialog::formatBytes(quint64(totalBytes))));
-    box.setInformativeText(tr("接收后文件会存到收件目录，并放进剪贴板，可以直接粘贴。"));
-    box.setDetailedText(preview);
-    box.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
-    box.setDefaultButton(QMessageBox::Yes);
-    if (auto *yes = box.button(QMessageBox::Yes); yes != nullptr)
-      yes->setText(tr("接收"));
-    if (auto *no = box.button(QMessageBox::No); no != nullptr)
-      no->setText(tr("拒绝"));
-
-    if (box.exec() != QMessageBox::Yes) {
+    const QString question = tr("「%1」想发送 %2 个文件（共 %3）给你。\n接收后文件会存到收件目录，并放进剪贴板，可以直接粘贴。")
+                                 .arg(peerName)
+                                 .arg(fileCount)
+                                 .arg(ClipTransferDialog::formatBytes(quint64(totalBytes)));
+    if (!askVisible(tr("收到文件"), question, preview)) {
       m_liteKvmController->rejectIncomingFiles();
       return;
     }
@@ -1663,9 +1742,16 @@ void MainWindow::onFileTransferCompleted(const QStringList &localPaths, bool out
     message = folder.isEmpty() ? tr("✅ 已接收 %1 个文件").arg(localPaths.size())
                                : tr("✅ 已接收 %1 个文件到 %2").arg(localPaths.size()).arg(folder);
 
-    // 收到的文件直接挂到本机剪贴板，用户 Ctrl+V 就能用
+    // 收到的文件直接挂到本机剪贴板，用户 Ctrl+V 就能用。
+    // 拖放过来的再起一次 QDrag（Windows 上是 DoDragDrop），光标已经在这台机器上。
     if (m_liteKvmController && !localPaths.isEmpty())
       m_liteKvmController->copyFilesToClipboard(localPaths);
+    const QString intent = m_incomingClipIntent;
+    m_incomingClipIntent.clear();
+    if (intent == QLatin1String("drag") && !localPaths.isEmpty()) {
+      const QStringList dragged = localPaths;
+      QTimer::singleShot(0, this, [this, dragged] { startRemoteDrag(dragged); });
+    }
   }
 
   finishTransferUi(message, false);

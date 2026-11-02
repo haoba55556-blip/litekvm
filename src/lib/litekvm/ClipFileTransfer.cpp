@@ -415,6 +415,8 @@ void ClipFileTransfer::sendLocalPaths(const QStringList &paths)
   offer.insert(QStringLiteral("total_bytes"), double(m_totalBytes));
   offer.insert(QStringLiteral("file_count"), entries.size());
   offer.insert(QStringLiteral("entries"), entries);
+  offer.insert(QStringLiteral("intent"),
+               m_outgoingIntent.isEmpty() ? QStringLiteral("clipboard") : m_outgoingIntent);
 
   m_state = State::Offering;
   sendJson(offer);
@@ -959,6 +961,10 @@ void ClipFileTransfer::handleOffer(const QJsonObject &msg)
   offer.entries = m_entries;
   offer.totalBytes = m_totalBytes;
   offer.chunkSize = m_chunkSize;
+  const QString intent = msg.value(QStringLiteral("intent")).toString();
+  offer.intent = (intent == QLatin1String("image") || intent == QLatin1String("drag"))
+                     ? intent
+                     : QStringLiteral("clipboard");
 
   m_state = State::OfferReceived;
   m_progress = TransferProgress{0, std::uint64_t(m_totalBytes)};

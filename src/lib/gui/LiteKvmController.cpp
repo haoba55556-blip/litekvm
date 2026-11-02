@@ -46,19 +46,19 @@ LiteKvmController::LiteKvmController(QObject *parent) : QObject(parent)
   connect(m_pairing, &litekvm::PairingService::pairingFailed, this,
           &LiteKvmController::pairingFailed);
 
-  if (m_advertiser->start(*m_identity, pairingPort))
-    m_discovery->start(*m_identity, m_trust.get());
+  // Listen before the first announce. The advertiser also repeats every
+  // couple of seconds, so a peer that boots later still gets found.
+  m_discovery->start(*m_identity, m_trust.get());
+  m_advertiser->start(*m_identity, pairingPort);
 
   m_pairing->listen(pairingPort);
 
-  // AutoConnect: paired peer online -> autoSessionRequested (minimal wiring)
+  // AutoConnect: paired peer online -> autoSessionRequested.
+  // The enabled flag is restored by MainWindow AFTER it connects the signal.
+  // Enabling here would mark the peer "attempted" with nobody listening.
   m_autoConnect = new litekvm::AutoConnect(*m_identity, *m_trust, *m_discovery, this);
   connect(m_autoConnect, &litekvm::AutoConnect::autoConnectRequested, this,
           &LiteKvmController::autoSessionRequested);
-  // restore persisted toggle — without this the switch silently resets to
-  // "off" on every launch and auto-connect never runs (bug found 2026-09-20)
-  if (Settings::value(QStringLiteral("litekvm/autoConnect")).toBool())
-    m_autoConnect->setEnabled(true);
 
   setupFileClipboard();
 }
@@ -79,6 +79,18 @@ void LiteKvmController::setAutoConnectEnabled(bool enabled)
     m_autoConnect->setEnabled(enabled);
   Settings::setValue(QStringLiteral("litekvm/autoConnect"), enabled);
   Settings::save(false);
+}
+
+void LiteKvmController::noteAutoSessionUp(const QString &deviceId)
+{
+  if (m_autoConnect)
+    m_autoConnect->noteSessionUp(deviceId);
+}
+
+void LiteKvmController::noteAutoSessionDown(const QString &deviceId)
+{
+  if (m_autoConnect)
+    m_autoConnect->noteSessionDown(deviceId);
 }
 
 void LiteKvmController::startPairing(const QString &deviceId)
@@ -137,7 +149,8 @@ void LiteKvmController::setupFileClipboard()
 
             m_transferActive = true;
             m_transferOutgoing = false;
-            Q_EMIT fileOfferReceived(offer.peerName, names, offer.totalBytes, int(offer.entries.size()));
+            const QString intent = offer.intent.isEmpty() ? QStringLiteral("clipboard") : offer.intent;
+            Q_EMIT fileOfferReceived(offer.peerName, names, offer.totalBytes, int(offer.entries.size()), intent);
           });
 
   connect(m_clipFile, &litekvm::ClipFileService::progressChanged, this,
@@ -215,10 +228,10 @@ void LiteKvmController::setupFileClipboard()
   // 剪贴板时 setFileClipboardEnabled() 会用 setWatchEnabled(false) 停掉上报，
   // 这里的 enabled 判断是第二道保险。
   connect(m_clipBridge, &litekvm::ClipboardFileBridge::localFilesCopied, this,
-          [this](const QStringList &paths) {
+          [this](const QStringList &paths, const QString &intent) {
             if (!m_fileClipboardEnabled || paths.isEmpty())
               return;
-            Q_EMIT localFilesCopied(paths);
+            Q_EMIT localFilesCopied(paths, intent.isEmpty() ? QStringLiteral("clipboard") : intent);
           });
 }
 
@@ -298,7 +311,7 @@ std::optional<LiteKvmController::ClipTarget> LiteKvmController::findTarget(const
   return std::nullopt;
 }
 
-void LiteKvmController::sendFilesToPeer(const QString &deviceId, const QStringList &paths)
+void LiteKvmController::sendFilesToPeer(const QString &deviceId, const QStringList &paths, const QString &intent)
 {
   if (!m_clipFile || !m_fileClipboardEnabled || paths.isEmpty())
     return;
@@ -311,7 +324,7 @@ void LiteKvmController::sendFilesToPeer(const QString &deviceId, const QStringLi
 
   m_transferActive = true;
   m_transferOutgoing = true;
-  m_clipFile->sendFilesTo(target->host, target->port, paths);
+  m_clipFile->sendFilesTo(target->host, target->port, paths, intent);
 }
 
 void LiteKvmController::acceptIncomingFiles()

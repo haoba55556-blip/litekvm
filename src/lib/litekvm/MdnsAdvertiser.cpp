@@ -9,6 +9,7 @@
 #include "MdnsAdvertiser.h"
 
 #include <QNetworkInterface>
+#include <QTimer>
 #include <QUdpSocket>
 
 namespace litekvm {
@@ -72,21 +73,35 @@ bool MdnsAdvertiser::start(const DeviceIdentity &self, uint16_t pairingPort, Pee
   m_pairingPort = pairingPort;
   m_state = state;
 
-  // join multicast group on all IPv4 interfaces
-  bool joined = false;
-  for (const QHostAddress &addr : allLocalAddresses()) {
-    if (m_socket.bind(addr, 0, QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
-      joined = true;
-      break;
-    }
-  }
-  if (!joined && !m_socket.bind(QHostAddress::AnyIPv4, kMdnsPort,
-                                QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
+  // Bind AnyIPv4, not the first adapter. The first CanMulticast address on
+  // Windows is often a virtual NIC, and announcements from there never reach
+  // the LAN. Share 5353 when we can so we also answer queries; otherwise an
+  // ephemeral port is enough because we re-announce on a timer.
+  const auto share = QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint;
+  if (m_socket.state() != QAbstractSocket::UnconnectedState)
+    m_socket.close();
+  if (!m_socket.bind(QHostAddress::AnyIPv4, kMdnsPort, share) &&
+      !m_socket.bind(QHostAddress::AnyIPv4, 0, share)) {
     return false;
   }
-  m_socket.joinMulticastGroup(kMdnsGroupV4);
+
+  int joined = 0;
+  for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces()) {
+    const auto flags = iface.flags();
+    if (!(flags & QNetworkInterface::IsUp) || !(flags & QNetworkInterface::CanMulticast))
+      continue;
+    if (flags & QNetworkInterface::IsLoopBack)
+      continue;
+    if (m_socket.joinMulticastGroup(kMdnsGroupV4, iface))
+      ++joined;
+  }
+  if (joined == 0)
+    m_socket.joinMulticastGroup(kMdnsGroupV4);
 
   announce();
+  m_announceTimer.setInterval(kAnnounceIntervalMs);
+  connect(&m_announceTimer, &QTimer::timeout, this, [this] { announce(); }, Qt::UniqueConnection);
+  m_announceTimer.start();
   return true;
 }
 
@@ -98,6 +113,7 @@ void MdnsAdvertiser::setState(PeerState state)
 
 void MdnsAdvertiser::stop()
 {
+  m_announceTimer.stop();
   m_socket.close();
 }
 

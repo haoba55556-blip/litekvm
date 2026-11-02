@@ -127,7 +127,8 @@ public:
   // --------------------------------------------------------------- client
   /// Connects to @p host:@p port, completes the paired-device handshake and
   /// sends @p paths. Every failure surfaces as errorOccurred().
-  void sendFilesTo(const QString &host, quint16 port, const QStringList &paths);
+  void sendFilesTo(const QString &host, quint16 port, const QStringList &paths,
+                   const QString &intent = QStringLiteral("clipboard"));
 
   // ------------------------------------------------- receiver-side actions
   /// Answer the current CLIP_OFFER; a no-op when no transfer is live. The
@@ -213,6 +214,7 @@ private:
   QString m_peerDeviceId;
   QString m_peerName;
   QStringList m_pendingPaths;    ///< client: staged by sendFilesTo()
+  QString m_pendingIntent = QStringLiteral("clipboard");
 
   QString m_incomingDir;
   bool m_autoAccept = false;

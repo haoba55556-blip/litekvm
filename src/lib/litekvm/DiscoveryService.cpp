@@ -9,6 +9,7 @@
 #include "MdnsAdvertiser.h"
 
 #include <QElapsedTimer>
+#include <QHostAddress>
 #include <QNetworkInterface>
 #include <QUdpSocket>
 
@@ -27,83 +28,176 @@ DiscoveryService::~DiscoveryService()
   stop();
 }
 
+QString DiscoveryService::normalizeHost(const QString &host)
+{
+  QString trimmed = host.trimmed();
+  const int scope = trimmed.indexOf(QLatin1Char('%'));
+  if (scope > 0)
+    trimmed = trimmed.left(scope);
+  if (trimmed.startsWith(QLatin1Char('[')) && trimmed.endsWith(QLatin1Char(']')))
+    trimmed = trimmed.mid(1, trimmed.size() - 2);
+
+  QHostAddress addr(trimmed);
+  if (addr.isNull())
+    return trimmed;
+
+  if (addr.protocol() == QAbstractSocket::IPv4Protocol) {
+    if (addr.isMulticast() || addr.isLoopback())
+      return {};
+    return addr.toString();
+  }
+
+  bool ok = false;
+  const quint32 v4 = addr.toIPv4Address(&ok);
+  if (ok) {
+    const QHostAddress mapped(v4);
+    if (mapped.isMulticast() || mapped.isLoopback())
+      return {};
+    return mapped.toString();
+  }
+  if (addr.isMulticast() || addr.isLoopback())
+    return {};
+  return addr.toString();
+}
+
+QByteArray DiscoveryService::buildBrowseQuery()
+{
+  // DNS header: id=0, flags=0 (query), qdcount=1. Question is
+  // _litekvm._tcp.local. PTR IN.
+  auto appendName = [](QByteArray &out, const QString &name) {
+    const QStringList labels = name.split(QLatin1Char('.'), Qt::SkipEmptyParts);
+    for (const QString &label : labels) {
+      const QByteArray utf8 = label.toUtf8();
+      out.append(char(utf8.size()));
+      out.append(utf8);
+    }
+    out.append(char(0));
+  };
+  QByteArray packet;
+  packet.append(char(0));
+  packet.append(char(0)); // id
+  packet.append(char(0));
+  packet.append(char(0)); // flags
+  packet.append(char(0));
+  packet.append(char(1)); // qdcount
+  packet.append(QByteArray(6, char(0))); // an/ns/ar
+  appendName(packet, kServiceType);
+  packet.append(char(0));
+  packet.append(char(12)); // PTR
+  packet.append(char(0));
+  packet.append(char(1)); // IN
+  return packet;
+}
+
 bool DiscoveryService::start(const DeviceIdentity &self, const TrustStore *trust)
 {
+  stop();
   m_self = &self;
   m_trust = trust;
 
-  // Join the mDNS multicast group; announcements from peers arrive here.
-  // The heavy lifting (socket + parse loop) lives in MdnsAdvertiser's socket;
-  // for discovery we run an independent listener socket bound to 5353.
-  auto *sock = new QUdpSocket(this);
-  bool bound = false;
-  for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces()) {
-    if (!(iface.flags() & QNetworkInterface::CanMulticast))
-      continue;
-    for (const QNetworkAddressEntry &entry : iface.addressEntries()) {
-      if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol &&
-          sock->bind(entry.ip(), 5353, QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
-        bound = true;
-        break;
-      }
-    }
-    if (bound)
-      break;
-  }
+  // One socket on 5353 joined to every real IPv4 interface. Binding only the
+  // first CanMulticast adapter misses the LAN on machines that also have
+  // Hyper-V / WSL / VPN adapters (those are often enumerated first).
+  m_socket = new QUdpSocket(this);
+  const auto share = QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint;
+  bool bound = m_socket->bind(QHostAddress::AnyIPv4, 5353, share);
   if (!bound)
-    bound = sock->bind(QHostAddress::AnyIPv4, 5353,
-                       QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint);
-  if (!bound)
+    bound = m_socket->bind(QHostAddress::AnyIPv4, 0, share);
+  if (!bound) {
+    m_socket->deleteLater();
+    m_socket = nullptr;
     return false;
+  }
 
   const QHostAddress group(QStringLiteral("224.0.0.251"));
-  sock->joinMulticastGroup(group);
-
-  connect(sock, &QUdpSocket::readyRead, this, [this, sock] {
-    while (sock->hasPendingDatagrams()) {
-      QByteArray dgram;
-      dgram.resize(int(sock->pendingDatagramSize()));
-      QHostAddress sender;
-      sock->readDatagram(dgram.data(), dgram.size(), &sender);
-
-      // Our announcements are DNS responses carrying "_litekvm" TXT records.
-      // Parse pragmatically: locate each "key=value" TXT string in the packet.
-      if (!dgram.contains("_litekvm"))
-        continue;
-
-      QMap<QString, QString> txt;
-      QString host = sender.toString();
-      quint16 port = 25901;
-
-      // scan for known keys anywhere in the payload (TXT records are plain)
-      auto grab = [&](const QByteArray &key) -> QString {
-        const int idx = dgram.indexOf(key);
-        if (idx < 0)
-          return {};
-        const int end = dgram.indexOf(char(0), idx);
-        const int stop = end < 0 ? dgram.size() : qMin(end, idx + 200);
-        return QString::fromUtf8(dgram.mid(idx + key.size(), stop - idx - key.size()));
-      };
-      txt["device-id"] = grab("device-id=");
-      txt["name"] = grab("name=");
-      txt["platform"] = grab("platform=");
-      txt["fp"] = grab("fp=");
-      txt["state"] = grab("state=");
-      const QString portStr = grab("port=");
-      if (!portStr.isEmpty())
-        port = portStr.toUShort();
-
-      if (!txt["device-id"].isEmpty() && txt["device-id"] != m_self->deviceId())
-        ingestTxtRecord(txt, host, port, true);
+  int joined = 0;
+  for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces()) {
+    const auto flags = iface.flags();
+    if (!(flags & QNetworkInterface::IsUp) || !(flags & QNetworkInterface::IsRunning))
+      continue;
+    if (!(flags & QNetworkInterface::CanMulticast) || (flags & QNetworkInterface::IsLoopBack))
+      continue;
+    bool hasV4 = false;
+    for (const QNetworkAddressEntry &entry : iface.addressEntries()) {
+      if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol && !entry.ip().isLoopback())
+        hasV4 = true;
     }
-  });
+    if (!hasV4)
+      continue;
+    if (m_socket->joinMulticastGroup(group, iface))
+      ++joined;
+  }
+  if (joined == 0)
+    m_socket->joinMulticastGroup(group);
 
+  connect(m_socket, &QUdpSocket::readyRead, this, &DiscoveryService::onReadyRead);
+
+  m_pruneTimer.setInterval(5000);
+  connect(&m_pruneTimer, &QTimer::timeout, this, &DiscoveryService::pruneStale, Qt::UniqueConnection);
+  m_pruneTimer.start();
+
+  sendBrowseQuery();
   return true;
 }
 
 void DiscoveryService::stop()
 {
-  // sockets are child objects; nothing else to do
+  m_pruneTimer.stop();
+  if (m_socket) {
+    m_socket->close();
+    m_socket->deleteLater();
+    m_socket = nullptr;
+  }
+}
+
+void DiscoveryService::sendBrowseQuery()
+{
+  if (!m_socket)
+    return;
+  m_socket->writeDatagram(buildBrowseQuery(), QHostAddress(QStringLiteral("224.0.0.251")), 5353);
+}
+
+void DiscoveryService::onReadyRead()
+{
+  if (!m_socket || !m_self)
+    return;
+  while (m_socket->hasPendingDatagrams()) {
+    QByteArray dgram;
+    dgram.resize(int(m_socket->pendingDatagramSize()));
+    QHostAddress sender;
+    m_socket->readDatagram(dgram.data(), dgram.size(), &sender);
+
+    // Our announcements are DNS responses carrying "_litekvm" TXT records.
+    if (!dgram.contains("_litekvm"))
+      continue;
+
+    const QString host = normalizeHost(sender.toString());
+    if (host.isEmpty())
+      continue;
+
+    QMap<QString, QString> txt;
+    quint16 port = 25901;
+
+    auto grab = [&](const QByteArray &key) -> QString {
+      const int idx = dgram.indexOf(key);
+      if (idx < 0)
+        return {};
+      const int end = dgram.indexOf(char(0), idx);
+      const int stop = end < 0 ? dgram.size() : qMin(end, idx + 200);
+      return QString::fromUtf8(dgram.mid(idx + key.size(), stop - idx - key.size()));
+    };
+    txt["device-id"] = grab("device-id=");
+    txt["name"] = grab("name=");
+    txt["platform"] = grab("platform=");
+    txt["fp"] = grab("fp=");
+    txt["state"] = grab("state=");
+    const QString portStr = grab("port=");
+    if (!portStr.isEmpty())
+      port = portStr.toUShort();
+
+    if (!txt["device-id"].isEmpty() && txt["device-id"] != m_self->deviceId())
+      ingestTxtRecord(txt, host, port, true);
+  }
 }
 
 void DiscoveryService::ingestTxtRecord(const QMap<QString, QString> &txt, const QString &host,

@@ -16,6 +16,9 @@
 
 #include <QMap>
 #include <QObject>
+#include <QTimer>
+
+class QUdpSocket;
 
 #include <map>
 #include <optional>
@@ -71,6 +74,14 @@ public:
   /// Thin public wrapper around ingestTxtRecord(); production paths never call it.
   void ingestTxtForTest(const QMap<QString, QString> &txt, const QString &host, quint16 port);
 
+  /// IPv4-mapped and scoped sender addresses become a plain address the core
+  /// can dial. Multicast group addresses come back empty (they are not a peer).
+  static QString normalizeHost(const QString &host);
+
+  /// One-shot PTR query for _litekvm._tcp.local. Sent on start so a peer that
+  /// announced before we were listening still answers.
+  static QByteArray buildBrowseQuery();
+
 Q_SIGNALS:
   void peerDiscovered(const litekvm::DiscoveredPeer &peer);
   void peerUpdated(const litekvm::DiscoveredPeer &peer);
@@ -80,9 +91,13 @@ private:
   void ingestTxtRecord(const QMap<QString, QString> &txt, const QString &host, uint16_t port,
                        bool announce);
   void pruneStale();
+  void onReadyRead();
+  void sendBrowseQuery();
 
   const DeviceIdentity *m_self = nullptr;
   const TrustStore *m_trust = nullptr;
+  QUdpSocket *m_socket = nullptr;
+  QTimer m_pruneTimer;
   std::map<QString, DiscoveredPeer> m_peers;   // key: device_id
   std::map<QString, qint64> m_lastSeenMs;      // device_id -> monotonic ms
 };

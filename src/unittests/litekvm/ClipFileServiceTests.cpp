@@ -189,12 +189,23 @@ private Q_SLOTS:
     QCOMPARE(int(server.role()), int(ClipFileService::Role::None));
     QVERIFY(!server.isListening());
 
+    QString serverName;
+    QString clientName;
+    bool serverHadPeer = false;
+    bool clientHadPeer = false;
+    // Read identity inside the signal. A tiny loopback file can finish and
+    // tear the session down before this function resumes, which clears
+    // peerDeviceId().
     connect(&server, &ClipFileService::peerConnected, [&](const QString &id) {
       serverPeer = id;
+      serverName = server.peerName();
+      serverHadPeer = server.hasPeer();
       serverUp.release();
     });
     connect(&client, &ClipFileService::peerConnected, [&](const QString &id) {
       clientPeer = id;
+      clientName = client.peerName();
+      clientHadPeer = client.hasPeer();
       clientUp.release();
     });
     connect(&server, &ClipFileService::peerDisconnected, [&] { serverBye.release(); });
@@ -240,10 +251,10 @@ private Q_SLOTS:
     QVERIFY2(spin(clientUp, log), qPrintable(log.join(QStringLiteral(" | "))));
     QCOMPARE(serverPeer, clientNode.identity->deviceId());
     QCOMPARE(clientPeer, serverNode.identity->deviceId());
-    QCOMPARE(server.peerDeviceId(), clientNode.identity->deviceId());
-    QCOMPARE(server.peerName(), clientNode.identity->name());
-    QVERIFY(server.hasPeer());
-    QVERIFY(client.hasPeer());
+    QCOMPARE(serverName, clientNode.identity->name());
+    QCOMPARE(clientName, serverNode.identity->name());
+    QVERIFY(serverHadPeer);
+    QVERIFY(clientHadPeer);
 
     // --- one real transfer
     QVERIFY2(spin(serverDone, log), qPrintable(log.join(QStringLiteral(" | "))));

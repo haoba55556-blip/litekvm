@@ -10,6 +10,7 @@
 
 #include "common/LogLevel.h"
 
+#include <atomic>
 #include <list>
 #include <mutex>
 
@@ -129,7 +130,9 @@ private:
   mutable std::mutex m_mutex;
   OutputterList m_outputters;
   OutputterList m_alwaysOutputters;
-  LogLevel::Level m_maxPriority;
+  // Lock-free so the mouse path can discard VERBOSE lines without taking
+  // m_mutex on every packet. Output still locks.
+  std::atomic<LogLevel::Level> m_maxPriority{LogLevel::Level::Info};
 };
 
 /*!

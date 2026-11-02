@@ -219,7 +219,7 @@ private:
 
   // communication with desk threads
   void waitForDesk() const;
-  void sendMessage(UINT, WPARAM, LPARAM) const;
+  void sendMessage(UINT, WPARAM, LPARAM, bool wait = true) const;
 
   // work around for messed up keyboard events from low-level hooks
   HWND getForegroundWindow() const;

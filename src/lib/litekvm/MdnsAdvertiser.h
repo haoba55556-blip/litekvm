@@ -7,6 +7,7 @@
 
 #include <QHostAddress>
 #include <QObject>
+#include <QTimer>
 #include <QUdpSocket>
 
 #include <vector>
@@ -22,6 +23,11 @@ class MdnsAdvertiser : public QObject {
 
 public:
   enum class PeerState { Pairable, Busy };
+
+  /// Unsolicited announce period. One shot at startup is not enough: the
+  /// peer may not be listening yet, and Windows often owns UDP/5353 so we
+  /// cannot rely on hearing their query.
+  static constexpr int kAnnounceIntervalMs = 2000;
 
   explicit MdnsAdvertiser(QObject *parent = nullptr);
 
@@ -41,6 +47,7 @@ private:
   static std::vector<QHostAddress> allLocalAddresses();
 
   QUdpSocket m_socket;
+  QTimer m_announceTimer;
   const DeviceIdentity *m_self = nullptr;
   uint16_t m_pairingPort = 25901;
   PeerState m_state = PeerState::Pairable;

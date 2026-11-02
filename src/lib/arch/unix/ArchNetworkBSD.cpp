@@ -6,6 +6,7 @@
  */
 
 #include "arch/unix/ArchNetworkBSD.h"
+#include "arch/LowLatencySocket.h"
 
 #include "arch/Arch.h"
 #include "arch/ArchException.h"
@@ -416,7 +417,24 @@ bool ArchNetworkBSD::setNoDelayOnSocket(ArchSocket s, bool noDelay)
     throwError(errno);
   }
 
+  if (noDelay)
+    setQuickAckOnSocket(s);
+
   return (oflag != 0);
+}
+
+void ArchNetworkBSD::setQuickAckOnSocket(ArchSocket s)
+{
+  if (!s || !LowLatencySocketPolicy::kRefreshQuickAckAfterRead)
+    return;
+#ifdef TCP_QUICKACK
+  int quick = 1;
+  // Not sticky on Linux. Ignore errors (not a TCP socket, or the option
+  // is missing). Throwing here would drop the mouse stream.
+  setsockopt(s->m_fd, IPPROTO_TCP, TCP_QUICKACK, reinterpret_cast<optval_t *>(&quick), sizeof(quick));
+#else
+  (void)s;
+#endif
 }
 
 void ArchNetworkBSD::setKeepAliveOnSocket(ArchSocket s, bool keepAlive)

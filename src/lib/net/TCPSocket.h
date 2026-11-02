@@ -77,6 +77,7 @@ protected:
   }
   virtual JobResult doRead();
   virtual JobResult doWrite();
+  void refreshQuickAck();
 
   void setJob(ISocketMultiplexerJob *);
 

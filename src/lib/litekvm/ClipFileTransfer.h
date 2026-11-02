@@ -56,6 +56,8 @@ struct ClipFileOffer {
   QList<ClipFileEntry> entries;
   qint64 totalBytes = 0;
   int chunkSize = 0;
+  /// "clipboard" (Ctrl+C), "image" (bitmap saved to a file), or "drag".
+  QString intent = QStringLiteral("clipboard");
 };
 
 /**
@@ -144,6 +146,15 @@ public:
   void setOfferTimeout(int ms);
   /// Stop queueing new chunks above this many bytes in flight.
   void setHighWaterMark(int bytes);
+  /// Stamped onto the next CLIP_OFFER. Unknown values are treated as "clipboard".
+  void setOutgoingIntent(const QString &intent)
+  {
+    m_outgoingIntent = intent.isEmpty() ? QStringLiteral("clipboard") : intent;
+  }
+  QString outgoingIntent() const
+  {
+    return m_outgoingIntent;
+  }
 
   // --------------------------------------------------------------- status
   State state() const
@@ -269,6 +280,7 @@ private:
 
   QString m_transferId;
   QString m_peerName;
+  QString m_outgoingIntent = QStringLiteral("clipboard");
   QList<ClipFileEntry> m_entries;
   QStringList m_entryLocalPaths; ///< sender only, index-aligned with m_entries
   QList<DestPath> m_destPaths;   ///< receiver only, index-aligned with m_entries

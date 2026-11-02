@@ -91,7 +91,9 @@ public Q_SLOTS:
   void cancelPairing();
 
   /// 把本地文件/目录发送到某个已配对对端。
-  void sendFilesToPeer(const QString &deviceId, const QStringList &paths);
+  /// @p intent 是 "clipboard"、"image" 或 "drag"，会写进 CLIP_OFFER。
+  void sendFilesToPeer(const QString &deviceId, const QStringList &paths,
+                       const QString &intent = QStringLiteral("clipboard"));
   /// 接受对端发来的 offer（收到 fileOfferReceived 之后调用）。
   void acceptIncomingFiles();
   /// 拒绝对端发来的 offer。
@@ -99,7 +101,13 @@ public Q_SLOTS:
   /// 取消当前传输（收发都可以）。
   void cancelFileTransfer();
   /// 把收到的文件放到本机剪贴板上，方便用户直接 Ctrl+V。
+  /// 单个图片文件同时写入位图，这样能粘贴进画图/聊天窗口。
   void copyFilesToClipboard(const QStringList &paths);
+
+  /// AutoConnect：核心进程已经在为这个对端跑着（或本机在当服务器）。
+  void noteAutoSessionUp(const QString &deviceId);
+  /// AutoConnect：核心进程停了，按退避再试。
+  void noteAutoSessionDown(const QString &deviceId);
 
   /// 开关「自动连接已配对设备」并持久化到 QSettings（litekvm/autoConnect）。
   void setAutoConnectEnabled(bool enabled);
@@ -119,10 +127,12 @@ Q_SIGNALS:
   void pairingSucceeded(const QString &deviceId, const QString &name);
   void pairingFailed(litekvm::PairingService::Error error);
 
-  /// 本机剪贴板里出现了文件（用户复制了文件/文件夹）。
-  void localFilesCopied(const QStringList &paths);
+  /// 本机剪贴板里出现了文件或图片。intent 为 clipboard / image。
+  void localFilesCopied(const QStringList &paths, const QString &intent);
   /// 对端请求发文件过来（需要 UI 确认是否接受）。
-  void fileOfferReceived(const QString &peerName, const QStringList &fileNames, qint64 totalBytes, int fileCount);
+  /// intent 为 clipboard / image / drag。drag 不该再弹确认框。
+  void fileOfferReceived(const QString &peerName, const QStringList &fileNames, qint64 totalBytes, int fileCount,
+                         const QString &intent);
   /// 传输进度（outgoing = true 表示本机在发）。
   void fileProgressChanged(quint64 bytesDone, quint64 bytesTotal, bool outgoing);
   /// 传输完成；outgoing 为 false 时 localPaths 是落盘结果。

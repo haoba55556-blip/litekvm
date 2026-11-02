@@ -3,7 +3,11 @@
 // Tests for litekvm-pro features: AutoStart, AutoConnect, RoleNegotiation.
 #include "../../lib/litekvm/AutoConnect.h"
 #include "../../lib/litekvm/AutoStart.h"
+#include "../../lib/litekvm/DiscoveryService.h"
+#include "../../lib/litekvm/MdnsAdvertiser.h"
 #include "../../lib/litekvm/RoleNegotiation.h"
+#include "../../lib/arch/LowLatencySocket.h"
+#include "../../lib/deskflow/MouseMotionCoalescer.h"
 
 #include <QTemporaryDir>
 #include <QtTest>
@@ -89,7 +93,104 @@ private Q_SLOTS:
                                 {"port", "25901"}},
                                "192.168.1.50", 25901);
     QTest::qWait(200);
-    QCOMPARE(requested.available(), 1); // unchanged
+    QCOMPARE(requested.available(), 1); // unchanged inside the backoff window
+  }
+
+  void autoConnectRetriesUntilSessionIsUp()
+  {
+    QTemporaryDir dir;
+    auto id = DeviceIdentity::loadOrCreate(dir.path() + "/id.json");
+    QVERIFY(id.has_value());
+    TrustStore trust(dir.path() + "/trust.json");
+    DiscoveryService discovery;
+    const QString peerId = QStringLiteral("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    trust.upsert({peerId, QByteArray(32, 'k'), QStringLiteral("other"), QStringLiteral("win"),
+                  QDateTime::currentDateTimeUtc(), {}, QDateTime::currentDateTimeUtc()});
+
+    AutoConnect ac(*id, trust, discovery);
+    ac.setBackoffScheduleForTest({40, 40, 40});
+    QSemaphore requested;
+    connect(&ac, &AutoConnect::autoConnectRequested, [&](const DiscoveredPeer &) { requested.release(); });
+
+    discovery.start(*id, &trust);
+    ac.setEnabled(true);
+    discovery.ingestTxtForTest({{"device-id", peerId},
+                                {"name", "other"},
+                                {"platform", "win"},
+                                {"fp", "aabbccdd"},
+                                {"state", "paired"},
+                                {"port", "25901"}},
+                               "192.168.1.20", 25901);
+
+    QTRY_COMPARE_WITH_TIMEOUT(requested.available(), 1, 1000);
+    // Nobody confirmed the core is up, so the watchdog fires.
+    QTRY_COMPARE_WITH_TIMEOUT(requested.available(), 2, 1000);
+
+    ac.noteSessionUp(peerId);
+    QTest::qWait(120);
+    QCOMPARE(requested.available(), 2);
+
+    ac.noteSessionDown(peerId);
+    QTRY_COMPARE_WITH_TIMEOUT(requested.available(), 3, 1000);
+
+    QVERIFY(QMetaObject::invokeMethod(&ac, "onPeerOffline", Q_ARG(QString, peerId)));
+    QTest::qWait(120);
+    QCOMPARE(requested.available(), 3); // offline: no further retries
+
+    discovery.ingestTxtForTest({{"device-id", peerId},
+                                {"name", "other"},
+                                {"platform", "win"},
+                                {"fp", "aabbccdd"},
+                                {"state", "paired"},
+                                {"port", "25901"}},
+                               "192.168.1.21", 25901);
+    QTRY_COMPARE_WITH_TIMEOUT(requested.available(), 4, 1000);
+  }
+
+  void discoveryNormalizesHostsAndQueries()
+  {
+    QCOMPARE(DiscoveryService::normalizeHost(QStringLiteral("192.168.1.9")), QStringLiteral("192.168.1.9"));
+    QCOMPARE(DiscoveryService::normalizeHost(QStringLiteral("::ffff:192.168.1.9")), QStringLiteral("192.168.1.9"));
+    QCOMPARE(DiscoveryService::normalizeHost(QStringLiteral("192.168.1.9%12")), QStringLiteral("192.168.1.9"));
+    QVERIFY(DiscoveryService::normalizeHost(QStringLiteral("224.0.0.251")).isEmpty());
+
+    const QByteArray query = DiscoveryService::buildBrowseQuery();
+    QVERIFY(query.contains("_litekvm"));
+    QCOMPARE(int(static_cast<unsigned char>(query.at(5))), 1); // qdcount low byte
+    QCOMPARE(MdnsAdvertiser::kAnnounceIntervalMs, 2000);
+    QVERIFY(MdnsAdvertiser::kAnnounceIntervalMs <= 5000);
+  }
+
+  void mouseMotionCoalescerKeepsLatestAndSums()
+  {
+    MouseMotionCoalescer motion;
+    motion.addAbsolute(1, 2);
+    motion.addAbsolute(9, 8);
+    motion.addAbsolute(4, 5);
+    int32_t x = 0;
+    int32_t y = 0;
+    QVERIFY(motion.takeAbsolute(x, y));
+    QCOMPARE(x, 4);
+    QCOMPARE(y, 5);
+    QVERIFY(!motion.takeAbsolute(x, y));
+
+    motion.addRelative(1, 1);
+    motion.addRelative(-3, 4);
+    motion.addRelative(2, 0);
+    int32_t dx = 0;
+    int32_t dy = 0;
+    QVERIFY(motion.takeRelative(dx, dy));
+    QCOMPARE(dx, 0);
+    QCOMPARE(dy, 5);
+    motion.clear();
+    QVERIFY(!motion.hasPending());
+  }
+
+  void lowLatencySocketPolicyDisablesNagleAndDelayedAck()
+  {
+    QVERIFY(LowLatencySocketPolicy::kTcpNoDelay);
+    QVERIFY(LowLatencySocketPolicy::kRefreshQuickAckAfterRead);
+    QCOMPARE(LowLatencySocketPolicy::kWindowsAckFrequency, 1);
   }
 
   void roleElectionSmallestIdWins()

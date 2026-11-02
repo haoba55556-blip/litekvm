@@ -177,7 +177,8 @@ quint16 ClipFileService::serverPort() const
   return m_server.serverPort();
 }
 
-void ClipFileService::sendFilesTo(const QString &host, quint16 port, const QStringList &paths)
+void ClipFileService::sendFilesTo(const QString &host, quint16 port, const QStringList &paths,
+                                  const QString &intent)
 {
   if (paths.isEmpty()) {
     reportError(Error::Protocol, QStringLiteral("sendFilesTo(): no paths given"));
@@ -192,6 +193,7 @@ void ClipFileService::sendFilesTo(const QString &host, quint16 port, const QStri
   }
 
   m_pendingPaths = paths;
+  m_pendingIntent = intent.isEmpty() ? QStringLiteral("clipboard") : intent;
 
   auto *socket = new QTcpSocket(this);
   // 局域网直连必须绕过系统代理：Qt 默认继承 Windows 代理设置，主控端开着
@@ -607,6 +609,7 @@ void ClipFileService::startTransfer()
   if (m_role == Role::Client && !m_pendingPaths.isEmpty()) {
     const QStringList paths = m_pendingPaths;
     m_pendingPaths.clear();
+    transfer->setOutgoingIntent(m_pendingIntent);
     transfer->sendLocalPaths(paths);
   }
 }
