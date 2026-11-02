@@ -179,6 +179,15 @@ void MdnsAdvertiser::announce()
   sendMdnsDatagram(&m_socket, buildAnnouncement(), kMdnsPort);
 }
 
+bool MdnsAdvertiser::shouldAnswer(const QByteArray &datagram)
+{
+  // DNS header byte 2 holds the QR bit (0x80). Queries are 0, responses are 1.
+  // A response that contains "_litekvm" is an announcement, not a question.
+  if (datagram.size() < 4 || (static_cast<unsigned char>(datagram.at(2)) & 0x80) != 0)
+    return false;
+  return datagram.contains("_litekvm");
+}
+
 void MdnsAdvertiser::onReadyRead()
 {
   while (m_socket.hasPendingDatagrams()) {
@@ -187,15 +196,13 @@ void MdnsAdvertiser::onReadyRead()
     QHostAddress sender;
     m_socket.readDatagram(datagram.data(), datagram.size(), &sender);
 
-    // minimal query parsing: find "_litekvm" in the question section and
-    // answer unicast to the asker (legacy mDNS quirk) + multicast
-    if (datagram.contains("_litekvm")) {
-      if (!datagram.contains("_litekvm._tcp.local.") || hasQuestionTail(datagram)) {
-        // reply directly to the querier too (helps some resolvers)
-        m_socket.writeDatagram(buildAnnouncement(), sender, kMdnsPort);
-      }
-      announce();
-    }
+    if (!shouldAnswer(datagram))
+      continue;
+
+    // Answer the query unicast (legacy mDNS) and multicast.
+    if (!datagram.contains("_litekvm._tcp.local.") || hasQuestionTail(datagram))
+      m_socket.writeDatagram(buildAnnouncement(), sender, kMdnsPort);
+    announce();
   }
 }
 

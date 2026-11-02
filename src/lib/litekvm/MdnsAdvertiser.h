@@ -31,6 +31,11 @@ public:
 
   explicit MdnsAdvertiser(QObject *parent = nullptr);
 
+  /// True only for a DNS query that names LiteKVM. Responses (QR bit set,
+  /// including our own announcements) must not be answered — fan-out would
+  /// otherwise echo every reply back out every NIC.
+  static bool shouldAnswer(const QByteArray &datagram);
+
   bool start(const DeviceIdentity &self, uint16_t pairingPort, PeerState state = PeerState::Pairable);
   void setState(PeerState state);
   void stop();

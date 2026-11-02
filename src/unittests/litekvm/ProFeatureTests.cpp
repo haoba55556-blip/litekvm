@@ -162,6 +162,17 @@ private Q_SLOTS:
     const QByteArray query = DiscoveryService::buildBrowseQuery();
     QVERIFY(query.contains("_litekvm"));
     QCOMPARE(int(static_cast<unsigned char>(query.at(5))), 1); // qdcount low byte
+    QVERIFY(MdnsAdvertiser::shouldAnswer(query));
+
+    // Same bytes with the QR bit set are a response. Answering them fans
+    // the reply back out every NIC and the two peers storm.
+    QByteArray response = query;
+    response[2] = char(static_cast<unsigned char>(response.at(2)) | 0x80);
+    QVERIFY(response.contains("_litekvm"));
+    QVERIFY(!MdnsAdvertiser::shouldAnswer(response));
+    QVERIFY(!MdnsAdvertiser::shouldAnswer(QByteArray()));
+    QVERIFY(!MdnsAdvertiser::shouldAnswer(QByteArray(4, '\0')));
+
     QCOMPARE(MdnsAdvertiser::kAnnounceIntervalMs, 2000);
     QVERIFY(MdnsAdvertiser::kAnnounceIntervalMs <= 5000);
   }
