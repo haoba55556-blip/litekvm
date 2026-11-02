@@ -10,6 +10,7 @@
 
 #include "common/Settings.h"
 #include "litekvm/AutoStart.h"
+#include "litekvm/ElevatedCore.h"
 
 #include <QCheckBox>
 #include <QDialogButtonBox>
@@ -38,10 +39,22 @@ ProSettingsDialog::ProSettingsDialog(LiteKvmController *controller, QWidget *par
   m_chkCloseToTray = new QCheckBox(tr("关闭窗口时最小化到托盘（保持连接）"), this);
   m_chkCloseToTray->setChecked(Settings::value(Settings::Gui::CloseToTray).toBool());
 
+  // Highest-privileges scheduled task. One UAC prompt when the task is
+  // created. This reaches admin windows on the user desktop. The dimmed UAC
+  // secure desktop is a different desktop and still needs service mode.
+  m_chkElevateCore = new QCheckBox(tr("以最高权限运行核心（可控制管理员窗口）"), this);
+  m_chkElevateCore->setEnabled(litekvm::ElevatedCore::supported());
+  m_chkElevateCore->setChecked(litekvm::ElevatedCore::isEnabled());
+  m_chkElevateCore->setToolTip(tr(
+      "通过计划任务以最高权限启动核心，这样能把键鼠送进「以管理员身份运行」的窗口。"
+      "第一次打开会弹出一次 UAC。"
+      "变暗的 UAC 安全桌面不在这个权限里，那种画面需要用 Windows 服务模式。"));
+
   auto *formLayout = new QFormLayout;
   formLayout->addRow(m_chkAutoStart);
   formLayout->addRow(m_chkAutoConnect);
   formLayout->addRow(m_chkCloseToTray);
+  formLayout->addRow(m_chkElevateCore);
 
   auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
   connect(buttonBox, &QDialogButtonBox::accepted, this, &ProSettingsDialog::accept);
@@ -63,6 +76,7 @@ void ProSettingsDialog::accept()
     Settings::setValue(QStringLiteral("litekvm/autoConnect"), m_chkAutoConnect->isChecked());
 
   Settings::setValue(Settings::Gui::CloseToTray, m_chkCloseToTray->isChecked());
+  litekvm::ElevatedCore::setEnabled(m_chkElevateCore->isChecked());
 
   QDialog::accept();
 }

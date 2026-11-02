@@ -6,6 +6,7 @@
 //
 // Spec: docs/discovery-pairing-spec.md §3 (litekvm-design repo)
 #include "DiscoveryService.h"
+#include "LanNic.h"
 #include "MdnsAdvertiser.h"
 
 #include <QElapsedTimer>
@@ -109,26 +110,8 @@ bool DiscoveryService::start(const DeviceIdentity &self, const TrustStore *trust
     return false;
   }
 
-  const QHostAddress group(QStringLiteral("224.0.0.251"));
-  int joined = 0;
-  for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces()) {
-    const auto flags = iface.flags();
-    if (!(flags & QNetworkInterface::IsUp) || !(flags & QNetworkInterface::IsRunning))
-      continue;
-    if (!(flags & QNetworkInterface::CanMulticast) || (flags & QNetworkInterface::IsLoopBack))
-      continue;
-    bool hasV4 = false;
-    for (const QNetworkAddressEntry &entry : iface.addressEntries()) {
-      if (entry.ip().protocol() == QAbstractSocket::IPv4Protocol && !entry.ip().isLoopback())
-        hasV4 = true;
-    }
-    if (!hasV4)
-      continue;
-    if (m_socket->joinMulticastGroup(group, iface))
-      ++joined;
-  }
-  if (joined == 0)
-    m_socket->joinMulticastGroup(group);
+  if (joinMdnsGroups(m_socket) == 0)
+    m_socket->joinMulticastGroup(QHostAddress(QStringLiteral("224.0.0.251")));
 
   connect(m_socket, &QUdpSocket::readyRead, this, &DiscoveryService::onReadyRead);
 
@@ -154,7 +137,7 @@ void DiscoveryService::sendBrowseQuery()
 {
   if (!m_socket)
     return;
-  m_socket->writeDatagram(buildBrowseQuery(), QHostAddress(QStringLiteral("224.0.0.251")), 5353);
+  sendMdnsDatagram(m_socket, buildBrowseQuery(), 5353);
 }
 
 void DiscoveryService::onReadyRead()

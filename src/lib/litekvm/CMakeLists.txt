@@ -35,6 +35,11 @@ add_library(litekvm STATIC
   ClipFileService.h
   ClipboardFileBridge.cpp
   ClipboardFileBridge.h
+  LanNic.cpp
+  LanNic.h
+  ClipRoute.h
+  ElevatedCore.cpp
+  ElevatedCore.h
 )
 
 target_include_directories(litekvm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

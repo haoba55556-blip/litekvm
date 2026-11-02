@@ -26,6 +26,8 @@ add_library(net STATIC
   ISocketMultiplexerJob.h
   NetworkAddress.cpp
   NetworkAddress.h
+  PeerHost.cpp
+  PeerHost.h
   SecureListenSocket.cpp
   SecureListenSocket.h
   SecurityLevel.h

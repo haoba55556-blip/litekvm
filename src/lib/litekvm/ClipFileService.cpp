@@ -561,7 +561,8 @@ void ClipFileService::notePeerSeen(const QString &deviceId, const QHostAddress &
   if (const TrustEntry *entry = m_trust.find(deviceId)) {
     TrustEntry updated = *entry;
     updated.lastSeen = QDateTime::currentDateTimeUtc();
-    updated.lastAddr = address.toString();
+    const QString normalized = DiscoveryService::normalizeHost(address.toString());
+    updated.lastAddr = normalized.isEmpty() ? address.toString() : normalized;
     m_trust.upsert(updated);
   }
 }

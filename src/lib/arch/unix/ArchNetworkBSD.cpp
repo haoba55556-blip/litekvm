@@ -423,6 +423,23 @@ bool ArchNetworkBSD::setNoDelayOnSocket(ArchSocket s, bool noDelay)
   return (oflag != 0);
 }
 
+std::string ArchNetworkBSD::getSocketPeerAddress(ArchSocket s)
+{
+  if (!s)
+    return {};
+  sockaddr_storage storage {};
+  auto length = static_cast<socklen_t>(sizeof(storage));
+  if (getpeername(s->m_fd, reinterpret_cast<sockaddr *>(&storage), &length) != 0)
+    return {};
+  char text[INET6_ADDRSTRLEN] = {};
+  if (storage.ss_family == AF_INET) {
+    inet_ntop(AF_INET, &reinterpret_cast<sockaddr_in *>(&storage)->sin_addr, text, sizeof(text));
+  } else if (storage.ss_family == AF_INET6) {
+    inet_ntop(AF_INET6, &reinterpret_cast<sockaddr_in6 *>(&storage)->sin6_addr, text, sizeof(text));
+  }
+  return text;
+}
+
 void ArchNetworkBSD::setQuickAckOnSocket(ArchSocket s)
 {
   if (!s || !LowLatencySocketPolicy::kRefreshQuickAckAfterRead)

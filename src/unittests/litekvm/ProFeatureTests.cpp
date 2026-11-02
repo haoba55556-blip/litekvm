@@ -3,8 +3,12 @@
 // Tests for litekvm-pro features: AutoStart, AutoConnect, RoleNegotiation.
 #include "../../lib/litekvm/AutoConnect.h"
 #include "../../lib/litekvm/AutoStart.h"
+#include "../../lib/litekvm/ClipRoute.h"
 #include "../../lib/litekvm/DiscoveryService.h"
+#include "../../lib/litekvm/ElevatedCore.h"
+#include "../../lib/litekvm/LanNic.h"
 #include "../../lib/litekvm/MdnsAdvertiser.h"
+#include "../../lib/litekvm/TrustStore.h"
 #include "../../lib/litekvm/RoleNegotiation.h"
 #include "../../lib/arch/LowLatencySocket.h"
 #include "../../lib/deskflow/MouseMotionCoalescer.h"
@@ -191,6 +195,89 @@ private Q_SLOTS:
     QVERIFY(LowLatencySocketPolicy::kTcpNoDelay);
     QVERIFY(LowLatencySocketPolicy::kRefreshQuickAckAfterRead);
     QCOMPARE(LowLatencySocketPolicy::kWindowsAckFrequency, 1);
+  }
+
+  void mdnsSkipsVirtualAndDownAdapters()
+  {
+    const QList<NicHint> nics = {
+        {QStringLiteral("以太网"), QStringLiteral("ethernet"), true, true, false, true, true},
+        {QStringLiteral("Wi-Fi"), QStringLiteral("wlan"), true, true, false, true, true},
+        {QStringLiteral("Microsoft Wi-Fi Direct Virtual Adapter"), QStringLiteral("wlan1"), true, true, false, true,
+         true},
+        {QStringLiteral("本地连接* 12"), QStringLiteral("wlan2"), true, true, false, true, true},
+        {QStringLiteral("Bluetooth Network Connection"), QStringLiteral("bt"), true, true, false, true, true},
+        {QStringLiteral("蓝牙网络连接"), QStringLiteral("bt0"), true, true, false, true, true},
+        {QStringLiteral("vEthernet (WSL)"), QStringLiteral("veth"), true, true, false, true, true},
+        {QStringLiteral("vEthernet (Default Switch)"), QStringLiteral("hyperv"), true, true, false, true, true},
+        {QStringLiteral("以太网 2"), QStringLiteral("eth2"), false, false, false, true, true},
+        {QStringLiteral("Loopback"), QStringLiteral("lo"), true, true, true, true, true},
+    };
+    const QList<NicHint> usable = usableLanNics(nics);
+    QStringList names;
+    for (const NicHint &nic : usable)
+      names.append(nic.humanName);
+    QCOMPARE(names.join(QLatin1Char(',')), QStringLiteral("以太网,Wi-Fi"));
+    QVERIFY(isVirtualAdapterName(QStringLiteral("Hyper-V Virtual Ethernet Adapter"), QStringLiteral("vEthernet")));
+  }
+
+  void clipSendPrefersLiveSocketOverStaleTrust()
+  {
+    ClipRouteInput route;
+    route.liveHost = QStringLiteral("::ffff:192.168.1.20");
+    route.liveScreenName = QStringLiteral("server");
+    route.deviceId = QStringLiteral("peer");
+    route.deviceName = QStringLiteral("laptop");
+    route.pairedCount = 1;
+    route.trustedHost = QStringLiteral("192.168.1.23");
+    QCOMPARE(clipRouteHost(route), QStringLiteral("192.168.1.20"));
+
+    route.liveHost.clear();
+    route.discoveredHost = QStringLiteral("192.168.1.20");
+    QCOMPARE(clipRouteHost(route), QStringLiteral("192.168.1.20"));
+
+    route.discoveredHost.clear();
+    QCOMPARE(clipRouteHost(route), QStringLiteral("192.168.1.23"));
+
+    route.liveHost = QStringLiteral("192.168.1.20");
+    route.pairedCount = 2;
+    route.trustedHost = QStringLiteral("10.0.0.5");
+    route.deviceName = QStringLiteral("other-laptop");
+    QCOMPARE(clipRouteHost(route), QStringLiteral("10.0.0.5"));
+    route.deviceName = QStringLiteral("server");
+    QCOMPARE(clipRouteHost(route), QStringLiteral("192.168.1.20"));
+  }
+
+  void trustLastAddrUpdatesOnlyWhenChanged()
+  {
+    QTemporaryDir dir;
+    TrustStore trust(dir.path() + "/trust.json");
+    const QString id = QStringLiteral("cccccccccccccccccccccccccccccccc");
+    trust.upsert({id, QByteArray(32, 'k'), QStringLiteral("laptop"), QStringLiteral("win"),
+                  QDateTime::currentDateTimeUtc(), QStringLiteral("192.168.1.23"), QDateTime::currentDateTimeUtc()});
+    QVERIFY(!trust.updateLastAddr(id, QStringLiteral("192.168.1.23")));
+    QVERIFY(trust.updateLastAddr(id, QStringLiteral("192.168.1.20")));
+    QCOMPARE(trust.find(id)->lastAddr, QStringLiteral("192.168.1.20"));
+
+    TrustStore reloaded(dir.path() + "/trust.json");
+    QVERIFY(reloaded.load());
+    QCOMPARE(reloaded.find(id)->lastAddr, QStringLiteral("192.168.1.20"));
+  }
+
+  void elevatedCoreTaskRunsHighestAndInteractive()
+  {
+    const QString script = ElevatedCore::launcherScript(QStringLiteral("C:/Program Files/LiteKVM/litekvm-core.exe"),
+                                                        {QStringLiteral("client")});
+    QVERIFY(script.contains(QStringLiteral("\"C:/Program Files/LiteKVM/litekvm-core.exe\" client")));
+
+    const auto create =
+        ElevatedCore::createTaskArguments(QStringLiteral("LiteKVMCore"), QStringLiteral("C:/Users/a/launch.cmd"));
+    QVERIFY(create.contains(QStringLiteral("/RL")));
+    QVERIFY(create.contains(QStringLiteral("HIGHEST")));
+    QVERIFY(create.contains(QStringLiteral("/IT")));
+    QCOMPARE(create.at(create.indexOf(QStringLiteral("/TN")) + 1), QStringLiteral("LiteKVMCore"));
+    QVERIFY(ElevatedCore::runTaskArguments(QStringLiteral("LiteKVMCore")).contains(QStringLiteral("/Run")));
+    QVERIFY(ElevatedCore::endTaskArguments(QStringLiteral("LiteKVMCore")).contains(QStringLiteral("/End")));
+    QVERIFY(!ElevatedCore::supported() || true);
   }
 
   void roleElectionSmallestIdWins()

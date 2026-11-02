@@ -19,6 +19,7 @@
 #include "deskflow/ScreenException.h"
 #include "deskflow/ipc/CoreIpc.h"
 #include "net/NetworkAddress.h"
+#include "net/PeerHost.h"
 #include "net/SocketException.h"
 #include "net/SocketMultiplexer.h"
 #include "net/TCPSocketFactory.h"
@@ -171,6 +172,11 @@ void ClientApp::handleClientConnected()
 {
   LOG_DEBUG("connected to server");
   ipcSendConnectionState(deskflow::core::ConnectionState::Connected);
+  if (m_client != nullptr) {
+    const std::string host = peerHostOf(m_client->getStream());
+    if (!host.empty())
+      ipcSendToClient("peerSocket", QStringLiteral("server|") + QString::fromStdString(host));
+  }
   // Reset server index on successful connection
   m_currentServerIndex = 0;
   m_lastServerAddressIndex = 0;

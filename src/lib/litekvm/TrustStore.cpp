@@ -106,6 +106,22 @@ const TrustEntry *TrustStore::find(const QString &deviceId) const
   return nullptr;
 }
 
+bool TrustStore::updateLastAddr(const QString &deviceId, const QString &addr)
+{
+  if (deviceId.isEmpty() || addr.isEmpty())
+    return false;
+  for (auto &entry : m_entries) {
+    if (entry.deviceId != deviceId)
+      continue;
+    if (entry.lastAddr == addr)
+      return false;
+    entry.lastAddr = addr;
+    entry.lastSeen = QDateTime::currentDateTimeUtc();
+    return save();
+  }
+  return false;
+}
+
 void TrustStore::upsert(const TrustEntry &entry)
 {
   for (auto &e : m_entries) {

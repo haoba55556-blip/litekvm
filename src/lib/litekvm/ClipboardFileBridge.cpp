@@ -18,6 +18,7 @@
 
 #include <QClipboard>
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
@@ -210,6 +211,17 @@ QStringList ClipboardFileBridge::localPathsFromMime(const QMimeData *mime)
   return paths;
 }
 
+QByteArray ClipboardFileBridge::imageContentHash(const QImage &image)
+{
+  if (image.isNull() || image.sizeInBytes() <= 0)
+    return {};
+  QCryptographicHash hash(QCryptographicHash::Sha1);
+  hash.addData(QByteArrayView(QByteArray::number(image.width())));
+  hash.addData(QByteArrayView(QByteArray::number(image.height())));
+  hash.addData(QByteArrayView(reinterpret_cast<const char *>(image.constBits()), image.sizeInBytes()));
+  return hash.result();
+}
+
 QString ClipboardFileBridge::imageDropDirectory()
 {
   return QStandardPaths::writableLocation(QStandardPaths::TempLocation) + QStringLiteral("/litekvm-clip");
@@ -382,6 +394,17 @@ bool ClipboardFileBridge::handleClipboardData(const QMimeData *mime)
   if (!m_watchEnabled)
     return false;
 
+  // Hash before capture() so a duplicate bitmap does not become a second PNG.
+  QByteArray imageHash;
+  const bool imageOnly = mime != nullptr && mime->hasImage() && localPathsFromMime(mime).isEmpty();
+  if (imageOnly) {
+    imageHash = imageContentHash(qvariant_cast<QImage>(mime->imageData()));
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (m_imageDedupeMs > 0 && !imageHash.isEmpty() && imageHash == m_lastImageHash &&
+        now - m_lastImageAtMs < m_imageDedupeMs)
+      return false;
+  }
+
   const CapturedPayload captured = capture(mime, imageDropDirectory());
 
   // Our own paste coming back through dataChanged(). Dropping it here is what
@@ -399,6 +422,10 @@ bool ClipboardFileBridge::handleClipboardData(const QMimeData *mime)
 
   m_localFiles = captured.paths;
   setFileClipboardState(true);
+  if (captured.intent == QLatin1String("image") && !imageHash.isEmpty()) {
+    m_lastImageHash = imageHash;
+    m_lastImageAtMs = QDateTime::currentMSecsSinceEpoch();
+  }
   Q_EMIT localFilesCopied(captured.paths, captured.intent);
   return true;
 }
@@ -434,6 +461,8 @@ bool ClipboardFileBridge::putFilesOnClipboard(const QStringList &localPaths, boo
     if (!image.isNull()) {
       mime->setImageData(image);
       m_imageEchoArmed = true;
+      m_lastImageHash = imageContentHash(image);
+      m_lastImageAtMs = QDateTime::currentDateTimeUtc().toMSecsSinceEpoch();
     }
   }
 

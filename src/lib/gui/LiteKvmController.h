@@ -104,6 +104,9 @@ public Q_SLOTS:
   /// 单个图片文件同时写入位图，这样能粘贴进画图/聊天窗口。
   void copyFilesToClipboard(const QStringList &paths);
 
+  /// The core socket's peer address. Prefer this over trust.json when sending files.
+  void noteLivePeer(const QString &screenName, const QString &host);
+
   /// AutoConnect：核心进程已经在为这个对端跑着（或本机在当服务器）。
   void noteAutoSessionUp(const QString &deviceId);
   /// AutoConnect：核心进程停了，按退避再试。
@@ -162,6 +165,8 @@ private:
   bool m_transferActive = false;
   bool m_transferOutgoing = false;
   qint64 m_maxTransferBytes = -1;
+  QString m_livePeerHost;
+  QString m_livePeerName;
 };
 
 } // namespace deskflow::gui

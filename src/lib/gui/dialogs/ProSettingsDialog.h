@@ -31,6 +31,7 @@ private:
   QCheckBox *m_chkAutoStart = nullptr;
   QCheckBox *m_chkAutoConnect = nullptr;
   QCheckBox *m_chkCloseToTray = nullptr;
+  QCheckBox *m_chkElevateCore = nullptr;
 };
 
 } // namespace deskflow::gui

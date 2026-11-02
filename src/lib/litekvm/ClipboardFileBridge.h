@@ -64,6 +64,8 @@ class ClipboardFileBridge : public QObject {
 public:
   /// How long after a self-write the guard keeps matching echoes (ms).
   static constexpr int kDefaultSelfWriteGuardMs = 3000;
+  /// Same bitmap copied twice (Explorer notifies again ~2s later) is one offer.
+  static constexpr int kDefaultImageDedupeMs = 5000;
   /// Floor/ceiling for setSelfWriteGuardMs().
   static constexpr int kMinSelfWriteGuardMs = 250;
   static constexpr int kMaxSelfWriteGuardMs = 60'000;
@@ -146,6 +148,15 @@ public:
   /// DROPFILES (CF_HDROP) -> native paths. @p bytes is the raw clipboard
   /// format, little-endian, ANSI or UTF-16 as the fWide flag says.
   static QStringList parseWindowsDropFiles(const QByteArray &bytes);
+
+  /// Stable hash of pixel bytes. Empty when @p image is null.
+  static QByteArray imageContentHash(const QImage &image);
+
+  /// Test seam. 0 disables image dedupe.
+  void setImageDedupeMsForTest(int ms)
+  {
+    m_imageDedupeMs = ms;
+  }
 
   // ------------------------------------------------------------- watching
 
@@ -252,6 +263,9 @@ private:
   bool m_watchEnabled = true;
   bool m_imageEchoArmed = false;
   int m_readAttempts = 0;
+  int m_imageDedupeMs = kDefaultImageDedupeMs;
+  QByteArray m_lastImageHash;
+  qint64 m_lastImageAtMs = 0;
   int m_guardMs = kDefaultSelfWriteGuardMs;
 };
 

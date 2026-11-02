@@ -246,6 +246,12 @@ public:
   {
   }
 
+  //! Numeric peer address of a connected socket, or empty.
+  virtual std::string getSocketPeerAddress(ArchSocket)
+  {
+    return {};
+  }
+
   //! Turn keep-alive on or off on socket
   /*!
   Set socket to use keep-alive (true) or not (false).

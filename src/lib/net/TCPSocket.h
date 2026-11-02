@@ -57,6 +57,9 @@ public:
   // IDataSocket overrides
   void connect(const NetworkAddress &) override;
 
+  /// Numeric address of the connected peer, from getpeername. Empty if none.
+  std::string peerHost() const;
+
   virtual ISocketMultiplexerJob *newJob();
 
 protected:

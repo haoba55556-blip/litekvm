@@ -162,6 +162,10 @@ public:
     return m_resolvedAddressesCount;
   }
   size_t getMaximumClipboardReceiveSizeBytes() const;
+  deskflow::IStream *getStream() const
+  {
+    return m_stream;
+  }
 
   //@}
 

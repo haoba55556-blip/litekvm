@@ -484,6 +484,37 @@ private Q_SLOTS:
     QCOMPARE(copied.count(), 1);
     QCOMPARE(copied.at(0).at(1).toString(), QStringLiteral("image"));
   }
+
+  void sameBitmapIsOfferedOnce()
+  {
+    QImage image(6, 4, QImage::Format_ARGB32);
+    image.fill(Qt::blue);
+    QMimeData first;
+    first.setImageData(image);
+    QMimeData second;
+    second.setImageData(image);
+
+    ClipboardFileBridge bridge;
+    bridge.setClipboard(nullptr);
+    bridge.setImageDedupeMsForTest(5000);
+    QSignalSpy copied(&bridge, &ClipboardFileBridge::localFilesCopied);
+
+    QVERIFY(bridge.handleClipboardData(&first));
+    QVERIFY(!bridge.handleClipboardData(&second));
+    QCOMPARE(copied.count(), 1);
+
+    QImage other(6, 4, QImage::Format_ARGB32);
+    other.fill(Qt::green);
+    QVERIFY(ClipboardFileBridge::imageContentHash(image) != ClipboardFileBridge::imageContentHash(other));
+    QMimeData third;
+    third.setImageData(other);
+    QVERIFY(bridge.handleClipboardData(&third));
+    QCOMPARE(copied.count(), 2);
+
+    bridge.setImageDedupeMsForTest(0);
+    QVERIFY(bridge.handleClipboardData(&second));
+    QCOMPARE(copied.count(), 3);
+  }
 };
 
 QTEST_MAIN(ClipboardFileBridgeTests)

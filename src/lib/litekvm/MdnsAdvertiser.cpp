@@ -8,6 +8,8 @@
 // Spec: docs/discovery-pairing-spec.md §3 (litekvm-design repo)
 #include "MdnsAdvertiser.h"
 
+#include "LanNic.h"
+
 #include <QNetworkInterface>
 #include <QTimer>
 #include <QUdpSocket>
@@ -85,17 +87,8 @@ bool MdnsAdvertiser::start(const DeviceIdentity &self, uint16_t pairingPort, Pee
     return false;
   }
 
-  int joined = 0;
-  for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces()) {
-    const auto flags = iface.flags();
-    if (!(flags & QNetworkInterface::IsUp) || !(flags & QNetworkInterface::CanMulticast))
-      continue;
-    if (flags & QNetworkInterface::IsLoopBack)
-      continue;
-    if (m_socket.joinMulticastGroup(kMdnsGroupV4, iface))
-      ++joined;
-  }
-  if (joined == 0)
+  // Receive on every real LAN adapter, not only the default route.
+  if (joinMdnsGroups(&m_socket) == 0)
     m_socket.joinMulticastGroup(kMdnsGroupV4);
 
   announce();
@@ -181,8 +174,9 @@ QByteArray MdnsAdvertiser::buildAnnouncement() const
 
 void MdnsAdvertiser::announce()
 {
-  const QByteArray payload = buildAnnouncement();
-  m_socket.writeDatagram(payload, kMdnsGroupV4, kMdnsPort);
+  // One writeDatagram() leaves Windows on the default route. Fan out with
+  // IP_MULTICAST_IF so a second NIC (and not Wi-Fi Direct) also speaks.
+  sendMdnsDatagram(&m_socket, buildAnnouncement(), kMdnsPort);
 }
 
 void MdnsAdvertiser::onReadyRead()

@@ -7,6 +7,7 @@
 #include "common/Settings.h"
 #include "litekvm/ClipFileService.h"
 #include "litekvm/ClipFileTransfer.h"
+#include "litekvm/ClipRoute.h"
 #include "litekvm/ClipboardFileBridge.h"
 #include "litekvm/MdnsAdvertiser.h"
 
@@ -91,6 +92,26 @@ void LiteKvmController::noteAutoSessionDown(const QString &deviceId)
 {
   if (m_autoConnect)
     m_autoConnect->noteSessionDown(deviceId);
+}
+
+void LiteKvmController::noteLivePeer(const QString &screenName, const QString &host)
+{
+  const QString addr = litekvm::DiscoveryService::normalizeHost(host);
+  if (addr.isEmpty() || !m_trust)
+    return;
+  m_livePeerHost = addr;
+  m_livePeerName = screenName;
+  const int paired = int(m_trust->entries().size());
+  for (const auto &entry : m_trust->entries()) {
+    litekvm::ClipRouteInput route;
+    route.liveHost = addr;
+    route.liveScreenName = screenName;
+    route.deviceId = entry.deviceId;
+    route.deviceName = entry.name;
+    route.pairedCount = paired;
+    if (litekvm::liveHostApplies(route))
+      m_trust->updateLastAddr(entry.deviceId, addr);
+  }
 }
 
 void LiteKvmController::startPairing(const QString &deviceId)
@@ -278,23 +299,50 @@ QList<LiteKvmController::ClipTarget> LiteKvmController::clipTargets() const
 {
   QList<ClipTarget> targets;
   QSet<QString> seen;
+  const int paired = m_trust ? int(m_trust->entries().size()) : 0;
 
-  // 1) 正在 mDNS 里可见、且已配对的设备（可以直接发）
+  auto routeHost = [&](const QString &deviceId, const QString &name, const QString &discovered,
+                       const QString &trusted) {
+    litekvm::ClipRouteInput route;
+    route.liveHost = m_livePeerHost;
+    route.liveScreenName = m_livePeerName;
+    route.deviceId = deviceId;
+    route.deviceName = name;
+    route.pairedCount = paired;
+    route.discoveredHost = discovered;
+    route.trustedHost = trusted;
+    return litekvm::clipRouteHost(route);
+  };
+
+  // 1) mDNS peers, but a live core socket address replaces a stale host.
   if (m_discovery) {
     for (const auto &peer : m_discovery->peers()) {
-      if (peer.state != litekvm::DiscoveredPeer::State::Paired || peer.host.isEmpty())
+      if (peer.state != litekvm::DiscoveredPeer::State::Paired)
         continue;
-      targets.append(ClipTarget{peer.deviceId, peer.name, peer.platform, peer.host, clipFilePort(), true});
+      QString trusted;
+      if (m_trust) {
+        if (const auto *entry = m_trust->find(peer.deviceId))
+          trusted = entry->lastAddr;
+      }
+      const QString host = routeHost(peer.deviceId, peer.name, peer.host, trusted);
+      if (host.isEmpty())
+        continue;
+      targets.append(ClipTarget{peer.deviceId, peer.name, peer.platform, host, clipFilePort(), true});
       seen.insert(peer.deviceId);
     }
   }
 
-  // 2) 信任库里记过地址、但眼下不在 mDNS 列表里的设备
+  // 2) Paired devices discovery cannot see. Live socket address wins over trust.json.
   if (m_trust) {
     for (const auto &entry : m_trust->entries()) {
-      if (seen.contains(entry.deviceId) || entry.lastAddr.isEmpty())
+      if (seen.contains(entry.deviceId))
         continue;
-      targets.append(ClipTarget{entry.deviceId, entry.name, entry.platform, entry.lastAddr, clipFilePort(), false});
+      const QString host = routeHost(entry.deviceId, entry.name, QString(), entry.lastAddr);
+      if (host.isEmpty())
+        continue;
+      const bool live = litekvm::liveHostApplies(
+          {m_livePeerHost, m_livePeerName, entry.deviceId, entry.name, paired, {}, entry.lastAddr});
+      targets.append(ClipTarget{entry.deviceId, entry.name, entry.platform, host, clipFilePort(), live});
       seen.insert(entry.deviceId);
     }
   }

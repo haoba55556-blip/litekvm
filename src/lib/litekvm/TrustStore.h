@@ -38,6 +38,8 @@ public:
   bool contains(const QString &deviceId) const;
   const TrustEntry *find(const QString &deviceId) const;
   void upsert(const TrustEntry &entry);
+  /// Write lastAddr when it actually changed. Returns true if the file was updated.
+  bool updateLastAddr(const QString &deviceId, const QString &addr);
   bool remove(const QString &deviceId);
   const std::vector<TrustEntry> &entries() const;
 
