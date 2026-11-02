@@ -6,15 +6,16 @@
 #include "widgets/EdgeFileDrop.h"
 
 #include "litekvm/ClipboardFileBridge.h"
+#include "litekvm/DragEdgeGate.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDragEnterEvent>
 #include <QDragLeaveEvent>
 #include <QDropEvent>
 #include <QGuiApplication>
 #include <QMimeData>
 #include <QScreen>
-#include <QTimer>
 #include <QWidget>
 
 namespace deskflow::gui {
@@ -30,60 +31,49 @@ public:
     setAttribute(Qt::WA_ShowWithoutActivating, true);
     setAttribute(Qt::WA_TranslucentBackground, true);
     setAttribute(Qt::WA_TransparentForMouseEvents, false);
-    setWindowOpacity(0.01);
+    setAttribute(Qt::WA_AlwaysStackOnTop, true);
+    // No setWindowOpacity(): on Windows that skips OLE hit-testing, so
+    // DragEnter never arrives. A 1/255 fill is enough to own a HWND.
+    setStyleSheet(QStringLiteral("background-color: rgba(0, 0, 0, 1);"));
     setAcceptDrops(true);
     setFocusPolicy(Qt::NoFocus);
     setGeometry(geom);
-
-    m_hold.setSingleShot(true);
-    m_hold.setInterval(EdgeFileDrop::kHoldMs);
-    connect(&m_hold, &QTimer::timeout, this, [this] {
-      if (!m_pending.isEmpty() && m_owner)
-        Q_EMIT m_owner->filesDragged(m_pending);
-      m_pending.clear();
-    });
   }
 
 protected:
   void dragEnterEvent(QDragEnterEvent *event) override
   {
-    m_pending = pathsFrom(event->mimeData());
-    if (m_pending.isEmpty()) {
+    const QStringList paths = pathsFrom(event->mimeData());
+    if (paths.isEmpty() || m_owner == nullptr) {
       event->ignore();
       return;
     }
     event->acceptProposedAction();
-    m_hold.start();
+    // Start now. dragLeave follows within milliseconds when the screen switches.
+    m_owner->beginDrag(paths);
   }
 
   void dragMoveEvent(QDragMoveEvent *event) override
   {
-    if (m_pending.isEmpty())
-      event->ignore();
-    else
-      event->acceptProposedAction();
+    event->acceptProposedAction();
   }
 
   void dragLeaveEvent(QDragLeaveEvent *event) override
   {
     Q_UNUSED(event)
-    m_hold.stop();
-    m_pending.clear();
+    if (m_owner)
+      m_owner->noteDragLeft();
   }
 
   void dropEvent(QDropEvent *event) override
   {
-    m_hold.stop();
-    if (m_pending.isEmpty())
-      m_pending = pathsFrom(event->mimeData());
-    if (m_pending.isEmpty()) {
+    const QStringList paths = pathsFrom(event->mimeData());
+    if (paths.isEmpty() || m_owner == nullptr) {
       event->ignore();
       return;
     }
     event->acceptProposedAction();
-    if (m_owner)
-      Q_EMIT m_owner->filesDragged(m_pending);
-    m_pending.clear();
+    m_owner->beginDrag(paths);
   }
 
 private:
@@ -94,8 +84,6 @@ private:
   }
 
   EdgeFileDrop *m_owner = nullptr;
-  QTimer m_hold;
-  QStringList m_pending;
 };
 
 } // namespace
@@ -123,6 +111,17 @@ void EdgeFileDrop::setEnabled(bool on)
     connect(app, &QGuiApplication::screenAdded, this, [this](QScreen *) { rebuild(); }, Qt::UniqueConnection);
     connect(app, &QGuiApplication::screenRemoved, this, [this](QScreen *) { rebuild(); }, Qt::UniqueConnection);
   }
+}
+
+void EdgeFileDrop::beginDrag(const QStringList &paths)
+{
+  if (m_gate.onEnter(paths, QDateTime::currentMSecsSinceEpoch()))
+    Q_EMIT filesDragged(paths);
+}
+
+void EdgeFileDrop::noteDragLeft()
+{
+  m_gate.onLeave();
 }
 
 QWidget *EdgeFileDrop::dragSource() const

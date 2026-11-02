@@ -220,6 +220,7 @@ private:
   // communication with desk threads
   void waitForDesk() const;
   void sendMessage(UINT, WPARAM, LPARAM, bool wait = true) const;
+  void postMouseApply() const;
 
   // work around for messed up keyboard events from low-level hooks
   HWND getForegroundWindow() const;
@@ -274,6 +275,16 @@ private:
   Mutex m_mutex;
   CondVar<bool> m_deskReady;
   Desks m_desks;
+
+  // Latest pointer sample. The core thread updates these and posts at most
+  // one desk message. The desk thread applies that sample, then anything
+  // that arrived during SendInput, and stops. No timer.
+  mutable int32_t m_pendingAbsX = 0;
+  mutable int32_t m_pendingAbsY = 0;
+  mutable bool m_pendingAbs = false;
+  mutable int32_t m_pendingRelDx = 0;
+  mutable int32_t m_pendingRelDy = 0;
+  mutable bool m_mouseApplyPosted = false;
 
   // keyboard stuff
   IJob *m_updateKeys;

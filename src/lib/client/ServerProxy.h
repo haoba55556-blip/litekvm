@@ -66,9 +66,6 @@ protected:
 private:
   // if compressing mouse motion then send the last motion now
   void flushCompressedMouse();
-  void armMouseFlush();
-  void cancelMouseFlushTimer();
-  void handleMouseFlushTimeout();
 
   void sendInfo(const ClientInfo &);
 
@@ -122,7 +119,6 @@ private:
   int32_t m_dxMouse = 0;
   int32_t m_dyMouse = 0;
   MouseMotionCoalescer m_mouseCoalescer;
-  EventQueueTimer *m_mouseFlushTimer = nullptr;
   bool m_suppressNoop = false;
 
   bool m_ignoreMouse = false;

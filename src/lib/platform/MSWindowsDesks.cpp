@@ -300,17 +300,34 @@ void MSWindowsDesks::fakeMouseButton(ButtonID button, bool press)
   sendMessage(DESKFLOW_MSG_FAKE_BUTTON, flags, data);
 }
 
+void MSWindowsDesks::postMouseApply() const
+{
+  if (m_mouseApplyPosted)
+    return;
+  if (m_activeDesk == nullptr || m_activeDesk->m_window == nullptr)
+    return;
+  if (PostThreadMessage(m_activeDesk->m_threadID, DESKFLOW_MSG_FAKE_MOVE, 0, 0) != 0)
+    m_mouseApplyPosted = true;
+}
+
 void MSWindowsDesks::fakeMouseMove(int32_t x, int32_t y) const
 {
-  // Do not wait. Waiting here serializes every sample on SendInput and is
-  // the stutter once the pointer is on the other computer. The desk thread
-  // keeps only the newest FAKE_MOVE.
-  sendMessage(DESKFLOW_MSG_FAKE_MOVE, static_cast<WPARAM>(x), static_cast<LPARAM>(y), false);
+  // Apply immediately when the desk thread is idle. While SendInput is in
+  // progress, keep only the newest absolute position — do not queue one
+  // message per sample and do not wait on a timer.
+  Lock lock(&m_mutex);
+  m_pendingAbsX = x;
+  m_pendingAbsY = y;
+  m_pendingAbs = true;
+  postMouseApply();
 }
 
 void MSWindowsDesks::fakeMouseRelativeMove(int32_t dx, int32_t dy) const
 {
-  sendMessage(DESKFLOW_MSG_FAKE_REL_MOVE, static_cast<WPARAM>(dx), static_cast<LPARAM>(dy), false);
+  Lock lock(&m_mutex);
+  m_pendingRelDx += dx;
+  m_pendingRelDy += dy;
+  postMouseApply();
 }
 
 void MSWindowsDesks::fakeMouseWheel(int32_t xDelta, int32_t yDelta) const
@@ -767,31 +784,39 @@ void MSWindowsDesks::deskThread(const void *vdesk)
       }
       break;
 
-    case DESKFLOW_MSG_FAKE_MOVE: {
-      int32_t x = static_cast<int32_t>(msg.wParam);
-      int32_t y = static_cast<int32_t>(msg.lParam);
-      MSG extra;
-      while (PeekMessage(&extra, nullptr, DESKFLOW_MSG_FAKE_MOVE, DESKFLOW_MSG_FAKE_MOVE, PM_REMOVE)) {
-        x = static_cast<int32_t>(extra.wParam);
-        y = static_cast<int32_t>(extra.lParam);
+    case DESKFLOW_MSG_FAKE_MOVE:
+    case DESKFLOW_MSG_FAKE_REL_MOVE:
+      // Drain the latest sample, then anything that arrived during SendInput.
+      // Holding the mutex across SendInput would deadlock if the hook calls back.
+      for (;;) {
+        int32_t absX = 0;
+        int32_t absY = 0;
+        int32_t relDx = 0;
+        int32_t relDy = 0;
+        bool hasAbs = false;
+        bool hasRel = false;
+        {
+          Lock lock(&m_mutex);
+          hasAbs = m_pendingAbs;
+          hasRel = m_pendingRelDx != 0 || m_pendingRelDy != 0;
+          absX = m_pendingAbsX;
+          absY = m_pendingAbsY;
+          relDx = m_pendingRelDx;
+          relDy = m_pendingRelDy;
+          m_pendingAbs = false;
+          m_pendingRelDx = 0;
+          m_pendingRelDy = 0;
+          if (!hasAbs && !hasRel) {
+            m_mouseApplyPosted = false;
+            break;
+          }
+        }
+        if (hasAbs)
+          deskMouseMove(absX, absY);
+        if (hasRel)
+          deskMouseRelativeMove(relDx, relDy);
       }
-      deskMouseMove(x, y);
-      // Mouse motion does not complete a waitForDesk(). Signalling here lets
-      // the next key/button wait return before that message is processed.
       continue;
-    }
-
-    case DESKFLOW_MSG_FAKE_REL_MOVE: {
-      int32_t dx = static_cast<int32_t>(msg.wParam);
-      int32_t dy = static_cast<int32_t>(msg.lParam);
-      MSG extra;
-      while (PeekMessage(&extra, nullptr, DESKFLOW_MSG_FAKE_REL_MOVE, DESKFLOW_MSG_FAKE_REL_MOVE, PM_REMOVE)) {
-        dx += static_cast<int32_t>(extra.wParam);
-        dy += static_cast<int32_t>(extra.lParam);
-      }
-      deskMouseRelativeMove(dx, dy);
-      continue;
-    }
 
     case DESKFLOW_MSG_FAKE_WHEEL:
       // XXX -- add support for x-axis scrolling

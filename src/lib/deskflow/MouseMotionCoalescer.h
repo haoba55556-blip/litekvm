@@ -19,6 +19,17 @@
  * SetCursorPos / SendInput per packet. Callers decide when to flush
  * (a few milliseconds, or immediately on a button).
  */
+/**
+ * Apply a mouse sample now when the socket has no further message already
+ * buffered. Coalesce only while more input is already in hand — never defer
+ * on a timer. Windows' default timer tick is ~15.6 ms, so a "4 ms" timer
+ * quantizes the pointer.
+ */
+inline bool shouldApplyMouseNow(bool moreInputAlreadyBuffered)
+{
+  return !moreInputAlreadyBuffered;
+}
+
 class MouseMotionCoalescer
 {
 public:

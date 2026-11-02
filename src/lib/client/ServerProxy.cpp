@@ -55,7 +55,6 @@ ServerProxy::ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue 
 ServerProxy::~ServerProxy()
 {
   setKeepAliveRate(-1.0);
-  cancelMouseFlushTimer();
   m_events->removeHandler(EventTypes::StreamInputReady, m_stream->getEventTarget());
   m_events->removeHandler(EventTypes::ClipboardSending, this);
 }
@@ -122,8 +121,8 @@ void ServerProxy::handleData()
     n = m_stream->read(code, 4);
   }
 
-  // Mouse samples are flushed by a short timer (or immediately on a button)
-  // so a burst that arrives as several reads still collapses to one warp.
+  // Tail of a burst that was coalesced because more bytes were already buffered.
+  flushCompressedMouse();
 }
 
 ServerProxy::ConnectionResult ServerProxy::parseHandshakeMessage(const uint8_t *code)
@@ -382,41 +381,8 @@ void ServerProxy::onClipboardChanged(ClipboardID id, const IClipboard *clipboard
   StreamChunker::sendClipboard(data, data.size(), id, m_seqNum, m_events, this);
 }
 
-void ServerProxy::cancelMouseFlushTimer()
-{
-  if (m_mouseFlushTimer == nullptr)
-    return;
-  m_events->removeHandler(EventTypes::Timer, m_mouseFlushTimer);
-  m_events->deleteTimer(m_mouseFlushTimer);
-  m_mouseFlushTimer = nullptr;
-}
-
-void ServerProxy::handleMouseFlushTimeout()
-{
-  // Drop the pointer before delete so flush's cancel does not free it twice.
-  auto *timer = m_mouseFlushTimer;
-  m_mouseFlushTimer = nullptr;
-  if (timer != nullptr) {
-    m_events->removeHandler(EventTypes::Timer, timer);
-    m_events->deleteTimer(timer);
-  }
-  flushCompressedMouse();
-}
-
-void ServerProxy::armMouseFlush()
-{
-  if (m_mouseFlushTimer != nullptr)
-    return;
-  // 4 ms keeps the remote pointer under one frame of a 60 Hz display
-  // without applying every 1000 Hz sample.
-  m_mouseFlushTimer = m_events->newOneShotTimer(0.004, nullptr);
-  m_events->addHandler(EventTypes::Timer, m_mouseFlushTimer, [this](const auto &) { handleMouseFlushTimeout(); });
-}
-
 void ServerProxy::flushCompressedMouse()
 {
-  cancelMouseFlushTimer();
-
   int32_t x = 0;
   int32_t y = 0;
   if (m_mouseCoalescer.takeAbsolute(x, y)) {
@@ -572,7 +538,6 @@ void ServerProxy::enter()
   m_dxMouse = 0;
   m_dyMouse = 0;
   m_mouseCoalescer.clear();
-  cancelMouseFlushTimer();
   m_seqNum = seqNum;
   m_serverLayout = "";
   m_isUserNotifiedAboutLayoutSyncError = false;
@@ -746,7 +711,10 @@ void ServerProxy::mouseMove()
   m_xMouse = x;
   m_yMouse = y;
   m_mouseCoalescer.addAbsolute(x, y);
-  armMouseFlush();
+  // Apply now unless the next message is already buffered. No timer: the
+  // Windows tick is ~15.6 ms and was quantizing every move.
+  if (shouldApplyMouseNow(m_stream->isReady()))
+    flushCompressedMouse();
 }
 
 void ServerProxy::mouseRelativeMove()
@@ -759,7 +727,8 @@ void ServerProxy::mouseRelativeMove()
     return;
 
   m_mouseCoalescer.addRelative(dx, dy);
-  armMouseFlush();
+  if (shouldApplyMouseNow(m_stream->isReady()))
+    flushCompressedMouse();
 }
 
 void ServerProxy::mouseWheel()

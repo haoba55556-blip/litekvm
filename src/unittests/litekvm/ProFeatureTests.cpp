@@ -12,6 +12,7 @@
 #include "../../lib/litekvm/RoleNegotiation.h"
 #include "../../lib/arch/LowLatencySocket.h"
 #include "../../lib/deskflow/MouseMotionCoalescer.h"
+#include "../../lib/litekvm/DragEdgeGate.h"
 
 #include <QTemporaryDir>
 #include <QtTest>
@@ -163,6 +164,26 @@ private Q_SLOTS:
     QCOMPARE(int(static_cast<unsigned char>(query.at(5))), 1); // qdcount low byte
     QCOMPARE(MdnsAdvertiser::kAnnounceIntervalMs, 2000);
     QVERIFY(MdnsAdvertiser::kAnnounceIntervalMs <= 5000);
+  }
+
+  void mouseAppliesNowUnlessMoreInputIsBuffered()
+  {
+    QVERIFY(shouldApplyMouseNow(false));
+    QVERIFY(!shouldApplyMouseNow(true));
+  }
+
+  void dragEnterStartsTransferAndLeaveDoesNotCancel()
+  {
+    DragEdgeGate gate;
+    const QStringList files{QStringLiteral("C:/a.txt")};
+    QVERIFY(gate.onEnter(files, 1000));
+    gate.onLeave();
+    QVERIFY(gate.transferStarted());
+    // Same drag flickering back onto the strip must not send a second copy.
+    QVERIFY(!gate.onEnter(files, 1200));
+    // A later, different drag does.
+    QVERIFY(gate.onEnter({QStringLiteral("C:/b.txt")}, 1200));
+    QVERIFY(gate.onEnter(files, 1000 + DragEdgeGate::kDebounceMs));
   }
 
   void mouseMotionCoalescerKeepsLatestAndSums()
