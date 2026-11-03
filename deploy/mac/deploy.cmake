@@ -11,7 +11,7 @@ set(OS_STRING "macos-${BUILD_ARCHITECTURE}")
 if (OSX_BUNDLE)
   install(CODE "execute_process(COMMAND
     ${DEPLOYQT}
-    \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_PROJECT_PROPER_NAME}.app\"
+    \"\${CMAKE_INSTALL_PREFIX}/${OSX_BUNDLE_NAME}.app\"
     -timestamp -codesign=-
   )")
   set(CPACK_PACKAGE_ICON "${MY_DIR}/dmg-volume.icns")

@@ -69,9 +69,7 @@ if(BUILD_OSX_BUNDLE)
   set_target_properties(${target} PROPERTIES
     BUILD_WITH_INSTALL_RPATH TRUE
     INSTALL_RPATH "@loader_path/../Libraries;@loader_path/../Frameworks"
-    # Place the core binary inside the GUI bundle. The bundle target is Deskflow,
-    # not CMAKE_PROJECT_PROPER_NAME (LiteKVM).
-    RUNTIME_OUTPUT_DIRECTORY $<TARGET_BUNDLE_CONTENT_DIR:Deskflow>/MacOS
+    RUNTIME_OUTPUT_DIRECTORY $<TARGET_BUNDLE_CONTENT_DIR:${OSX_BUNDLE_NAME}>/MacOS
   )
   if (APPLE_CODESIGN_DEV)
     configure_mac_codesign(${target})
