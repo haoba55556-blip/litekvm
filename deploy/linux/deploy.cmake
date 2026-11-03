@@ -11,6 +11,14 @@ install(
   DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
 )
 
+# Flatpak only exports a desktop file whose name matches its app-id.
+if(NOT "${CMAKE_PROJECT_REV_FQDN}" STREQUAL "org.deskflow.deskflow")
+  install(
+    FILES ${MY_DIR}/org.deskflow.deskflow.desktop
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
+  )
+endif()
+
 # Install our icon
 install(FILES ${MY_DIR}/org.deskflow.deskflow.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps/)
 
