@@ -14,6 +14,7 @@
 #include "../../lib/litekvm/RoleNegotiation.h"
 #include "../../lib/litekvm/TrustStore.h"
 
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -129,9 +130,10 @@ private Q_SLOTS:
     );
 
     AutoConnect ac(*id, trust, discovery);
-    ac.setBackoffScheduleForTest({40, 40, 40});
-    QSemaphore requested;
-    connect(&ac, &AutoConnect::autoConnectRequested, [&](const DiscoveredPeer &) { requested.release(); });
+    // One signal at a time. A short backoff sampled over a long window races
+    // past the expected count before the assertion runs.
+    ac.setBackoffScheduleForTest({300, 300, 300});
+    QSignalSpy requested(&ac, &AutoConnect::autoConnectRequested);
 
     discovery.start(*id, &trust);
     ac.setEnabled(true);
@@ -145,20 +147,22 @@ private Q_SLOTS:
         "192.168.1.20", 25901
     );
 
-    QTRY_COMPARE_WITH_TIMEOUT(requested.available(), 1, 1000);
-    // Nobody confirmed the core is up, so the watchdog fires.
-    QTRY_COMPARE_WITH_TIMEOUT(requested.available(), 2, 1000);
+    QCOMPARE(requested.count(), 1);
+    // Nobody confirmed the core is up, so the watchdog fires once.
+    QVERIFY(requested.wait(1000));
+    QCOMPARE(requested.count(), 2);
 
     ac.noteSessionUp(peerId);
-    QTest::qWait(120);
-    QCOMPARE(requested.available(), 2);
+    QVERIFY(!requested.wait(150));
+    QCOMPARE(requested.count(), 2);
 
     ac.noteSessionDown(peerId);
-    QTRY_COMPARE_WITH_TIMEOUT(requested.available(), 3, 1000);
+    QVERIFY(requested.wait(1000));
+    QCOMPARE(requested.count(), 3);
 
     QVERIFY(QMetaObject::invokeMethod(&ac, "onPeerOffline", Q_ARG(QString, peerId)));
-    QTest::qWait(120);
-    QCOMPARE(requested.available(), 3); // offline: no further retries
+    QVERIFY(!requested.wait(150));
+    QCOMPARE(requested.count(), 3); // offline: no further retries
 
     discovery.ingestTxtForTest(
         {{"device-id", peerId},
@@ -169,7 +173,7 @@ private Q_SLOTS:
          {"port", "25901"}},
         "192.168.1.21", 25901
     );
-    QTRY_COMPARE_WITH_TIMEOUT(requested.available(), 4, 1000);
+    QCOMPARE(requested.count(), 4);
   }
 
   void discoveryNormalizesHostsAndQueries()
