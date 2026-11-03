@@ -44,7 +44,9 @@ if (NOT BUILD_OSX_BUNDLE)
   )
 else()
   #when making the bundle copy our translation into the bundle
-  set(BUNDLE_TR_DIR $<TARGET_BUNDLE_CONTENT_DIR:${CMAKE_PROJECT_PROPER_NAME}>/Resources/translations)
+  # The macOS GUI bundle target is Deskflow (src/apps/deskflow-gui/CMakeLists.txt).
+  # CMAKE_PROJECT_PROPER_NAME is LiteKVM, which is not a CMake target.
+  set(BUNDLE_TR_DIR $<TARGET_BUNDLE_CONTENT_DIR:Deskflow>/Resources/translations)
 
   # find the qt translation files needed to copy into the bundle
   get_target_property(lupdate_executable Qt6::lupdate IMPORTED_LOCATION)
