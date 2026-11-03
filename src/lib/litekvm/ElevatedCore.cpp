@@ -11,8 +11,12 @@
 #include <QStandardPaths>
 
 #if defined(Q_OS_WIN)
-#include <shellapi.h>
+// shellapi.h uses types from windows.h (HDROP, SHELLEXECUTEINFOW). clang-format
+// would sort these includes and put shellapi.h first, which breaks MSVC.
+// clang-format off
 #include <windows.h>
+#include <shellapi.h>
+// clang-format on
 #endif
 
 namespace litekvm {
