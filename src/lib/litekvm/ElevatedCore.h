@@ -13,7 +13,8 @@
 
 namespace litekvm {
 
-class ElevatedCore {
+class ElevatedCore
+{
 public:
   static constexpr auto kTaskName = "LiteKVMCore";
 

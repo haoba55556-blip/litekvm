@@ -29,7 +29,8 @@ namespace deskflow::gui {
  * the cursor leaves this computer. It is not using setWindowOpacity(); that
  * flag makes some Windows builds skip hit-testing.
  */
-class EdgeFileDrop : public QObject {
+class EdgeFileDrop : public QObject
+{
   Q_OBJECT
 
 public:

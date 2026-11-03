@@ -16,11 +16,16 @@ namespace litekvm {
  * device_id. 5-second hysteresis keeps the role stable through transient
  * disconnects; every actual change bumps an epoch and emits roleChanged.
  */
-class RoleNegotiation : public QObject {
+class RoleNegotiation : public QObject
+{
   Q_OBJECT
 
 public:
-  enum class Role { Server, Client };
+  enum class Role
+  {
+    Server,
+    Client
+  };
 
   explicit RoleNegotiation(const DeviceIdentity &self, QObject *parent = nullptr);
 
@@ -49,8 +54,8 @@ private:
   void reelect();
 
   const DeviceIdentity &m_self;
-  QSet<QString> m_online;                    // online peer ids (excl. self)
-  QHash<QString, qint64> m_offlineSince;     // grace-window bookkeeping
+  QSet<QString> m_online;                // online peer ids (excl. self)
+  QHash<QString, qint64> m_offlineSince; // grace-window bookkeeping
   QString m_currentServer;
   quint64 m_epoch = 0;
   QTimer m_graceTimer; // single-shot: re-elect when the hysteresis window expires

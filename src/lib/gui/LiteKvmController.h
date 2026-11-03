@@ -38,8 +38,8 @@ public:
     QString deviceId;
     QString name;
     QString platform;
-    QString host;      ///< IP / 主机名，空表示当前不可达
-    quint16 port = 0;  ///< 文件剪贴板端口
+    QString host;     ///< IP / 主机名，空表示当前不可达
+    quint16 port = 0; ///< 文件剪贴板端口
     bool online = false;
   };
 
@@ -92,8 +92,9 @@ public Q_SLOTS:
 
   /// 把本地文件/目录发送到某个已配对对端。
   /// @p intent 是 "clipboard"、"image" 或 "drag"，会写进 CLIP_OFFER。
-  void sendFilesToPeer(const QString &deviceId, const QStringList &paths,
-                       const QString &intent = QStringLiteral("clipboard"));
+  void sendFilesToPeer(
+      const QString &deviceId, const QStringList &paths, const QString &intent = QStringLiteral("clipboard")
+  );
   /// 接受对端发来的 offer（收到 fileOfferReceived 之后调用）。
   void acceptIncomingFiles();
   /// 拒绝对端发来的 offer。
@@ -134,8 +135,9 @@ Q_SIGNALS:
   void localFilesCopied(const QStringList &paths, const QString &intent);
   /// 对端请求发文件过来（需要 UI 确认是否接受）。
   /// intent 为 clipboard / image / drag。drag 不该再弹确认框。
-  void fileOfferReceived(const QString &peerName, const QStringList &fileNames, qint64 totalBytes, int fileCount,
-                         const QString &intent);
+  void fileOfferReceived(
+      const QString &peerName, const QStringList &fileNames, qint64 totalBytes, int fileCount, const QString &intent
+  );
   /// 传输进度（outgoing = true 表示本机在发）。
   void fileProgressChanged(quint64 bytesDone, quint64 bytesTotal, bool outgoing);
   /// 传输完成；outgoing 为 false 时 localPaths 是落盘结果。

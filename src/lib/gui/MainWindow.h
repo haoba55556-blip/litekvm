@@ -167,12 +167,13 @@ private:
   void requestSendFiles();
   void sendFiles(const QStringList &paths, bool fromClipboard, const QString &intent = QStringLiteral("clipboard"));
   void onLocalFilesCopied(const QStringList &paths, const QString &intent);
-  void onFileOfferReceived(const QString &peerName, const QStringList &fileNames, qint64 totalBytes, int fileCount,
-                           const QString &intent);
+  void onFileOfferReceived(
+      const QString &peerName, const QStringList &fileNames, qint64 totalBytes, int fileCount, const QString &intent
+  );
   void onAutoSessionRequested(const litekvm::DiscoveredPeer &peer);
   void onEdgeFilesDragged(const QStringList &paths);
   void startRemoteDrag(const QStringList &paths);
-  bool askVisible(const QString &title, const QString &text, const QString &detail = QString()) ;
+  bool askVisible(const QString &title, const QString &text, const QString &detail = QString());
   void onFileProgressChanged(quint64 bytesDone, quint64 bytesTotal, bool outgoing);
   void onFileTransferCompleted(const QStringList &localPaths, bool outgoing, const QString &transferId);
   void onFileTransferFailed(const QString &message, bool outgoing);

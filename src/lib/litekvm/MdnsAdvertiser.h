@@ -3,8 +3,8 @@
 // LiteKVM mDNS advertiser — raw multicast-DNS announce on UDP/5353.
 #pragma once
 
-#include "DiscoveryService.h"
 #include "DeviceIdentity.h"
+#include "DiscoveryService.h"
 
 #include <QHostAddress>
 #include <QObject>
@@ -19,11 +19,16 @@ namespace litekvm {
  * @brief Publishes this device as _litekvm._tcp.local. via raw mDNS.
  * Qt 6.8 lacks a public publish API, hence the hand-rolled responder.
  */
-class MdnsAdvertiser : public QObject {
+class MdnsAdvertiser : public QObject
+{
   Q_OBJECT
 
 public:
-  enum class PeerState { Pairable, Busy };
+  enum class PeerState
+  {
+    Pairable,
+    Busy
+  };
 
   /// Unsolicited announce period. One shot at startup is not enough: the
   /// peer may not be listening yet, and Windows often owns UDP/5353 so we

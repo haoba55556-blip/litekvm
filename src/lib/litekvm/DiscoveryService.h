@@ -27,8 +27,14 @@ class QUdpSocket;
 
 namespace litekvm {
 
-struct DiscoveredPeer {
-  enum class State { Pairable, Paired, Busy };
+struct DiscoveredPeer
+{
+  enum class State
+  {
+    Pairable,
+    Paired,
+    Busy
+  };
 
   QString deviceId;
   QString name;
@@ -55,7 +61,8 @@ struct DiscoveredPeer {
  * Multi-NIC duplicates are deduped by device_id (last record wins).
  * TrustStore (when provided) upgrades display state of paired devices.
  */
-class DiscoveryService : public QObject {
+class DiscoveryService : public QObject
+{
   Q_OBJECT
 
 public:
@@ -89,8 +96,7 @@ Q_SIGNALS:
   void peerOffline(const QString &deviceId);
 
 private:
-  void ingestTxtRecord(const QMap<QString, QString> &txt, const QString &host, uint16_t port,
-                       bool announce);
+  void ingestTxtRecord(const QMap<QString, QString> &txt, const QString &host, uint16_t port, bool announce);
   void pruneStale();
   void onReadyRead();
   void sendBrowseQuery();
@@ -99,8 +105,8 @@ private:
   const TrustStore *m_trust = nullptr;
   QUdpSocket *m_socket = nullptr;
   QTimer m_pruneTimer;
-  std::map<QString, DiscoveredPeer> m_peers;   // key: device_id
-  std::map<QString, qint64> m_lastSeenMs;      // device_id -> monotonic ms
+  std::map<QString, DiscoveredPeer> m_peers; // key: device_id
+  std::map<QString, qint64> m_lastSeenMs;    // device_id -> monotonic ms
 };
 
 } // namespace litekvm

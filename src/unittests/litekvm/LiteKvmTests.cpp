@@ -9,7 +9,8 @@
 
 using namespace litekvm;
 
-class LiteKvmTests : public QObject {
+class LiteKvmTests : public QObject
+{
   Q_OBJECT
 
 private Q_SLOTS:

@@ -106,10 +106,21 @@ QStringList ElevatedCore::createTaskArguments(const QString &taskName, const QSt
   // /IT: only while the user is logged on, so the core shares the interactive
   // desktop. /RL HIGHEST: elevated. The secure desktop is still out of reach.
   const QString action = QStringLiteral("cmd.exe /c \"%1\"").arg(scriptPath);
-  return {QStringLiteral("/Create"), QStringLiteral("/F"), QStringLiteral("/TN"), taskName,
-          QStringLiteral("/SC"),      QStringLiteral("ONCE"), QStringLiteral("/ST"), QStringLiteral("00:00"),
-          QStringLiteral("/RL"),      QStringLiteral("HIGHEST"), QStringLiteral("/IT"), QStringLiteral("/TR"),
-          action};
+  return {
+      QStringLiteral("/Create"),
+      QStringLiteral("/F"),
+      QStringLiteral("/TN"),
+      taskName,
+      QStringLiteral("/SC"),
+      QStringLiteral("ONCE"),
+      QStringLiteral("/ST"),
+      QStringLiteral("00:00"),
+      QStringLiteral("/RL"),
+      QStringLiteral("HIGHEST"),
+      QStringLiteral("/IT"),
+      QStringLiteral("/TR"),
+      action
+  };
 }
 
 QStringList ElevatedCore::runTaskArguments(const QString &taskName)
@@ -157,9 +168,9 @@ bool ElevatedCore::launch(const QString &exe, const QStringList &args, QString *
 #if defined(Q_OS_WIN)
     // Registering /RL HIGHEST from a normal process is denied. One UAC prompt
     // creates the task; later /Run calls do not ask again.
-    const QString elevated = QStringLiteral(
-        "/Create /F /TN %1 /SC ONCE /ST 00:00 /RL HIGHEST /IT /TR \"cmd.exe /c \\\"%2\\\"\"")
-                                 .arg(QLatin1String(kTaskName), path);
+    const QString elevated =
+        QStringLiteral("/Create /F /TN %1 /SC ONCE /ST 00:00 /RL HIGHEST /IT /TR \"cmd.exe /c \\\"%2\\\"\"")
+            .arg(QLatin1String(kTaskName), path);
     if (!runSchtasksElevated(elevated, &createError)) {
       if (error)
         *error = createError.isEmpty() ? QStringLiteral("schtasks /Create failed") : createError;

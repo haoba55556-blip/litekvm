@@ -1,25 +1,26 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
 // SPDX-License-Identifier: GPL-2.0-only
 // Tests for litekvm-pro features: AutoStart, AutoConnect, RoleNegotiation.
+#include "../../lib/arch/LowLatencySocket.h"
+#include "../../lib/deskflow/MouseMotionCoalescer.h"
 #include "../../lib/litekvm/AutoConnect.h"
 #include "../../lib/litekvm/AutoStart.h"
 #include "../../lib/litekvm/ClipRoute.h"
 #include "../../lib/litekvm/DiscoveryService.h"
+#include "../../lib/litekvm/DragEdgeGate.h"
 #include "../../lib/litekvm/ElevatedCore.h"
 #include "../../lib/litekvm/LanNic.h"
 #include "../../lib/litekvm/MdnsAdvertiser.h"
-#include "../../lib/litekvm/TrustStore.h"
 #include "../../lib/litekvm/RoleNegotiation.h"
-#include "../../lib/arch/LowLatencySocket.h"
-#include "../../lib/deskflow/MouseMotionCoalescer.h"
-#include "../../lib/litekvm/DragEdgeGate.h"
+#include "../../lib/litekvm/TrustStore.h"
 
 #include <QTemporaryDir>
 #include <QtTest>
 
 using namespace litekvm;
 
-class ProFeatureTests : public QObject {
+class ProFeatureTests : public QObject
+{
   Q_OBJECT
 
 private Q_SLOTS:
@@ -31,8 +32,7 @@ private Q_SLOTS:
 
     const bool wasEnabled = AutoStart::isEnabled();
     // remember original value to restore (never break the user's machine state)
-    const QString runKey =
-        QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run");
+    const QString runKey = QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run");
     QSettings run(runKey, QSettings::NativeFormat);
     const QString original = run.value("LiteKVM").toString();
 
@@ -59,27 +59,34 @@ private Q_SLOTS:
 
     QSemaphore requested;
     DiscoveredPeer captured;
-    QObject::connect(&ac, &AutoConnect::autoConnectRequested,
-                     [&](const DiscoveredPeer &p) {
-                       captured = p;
-                       requested.release();
-                     });
+    QObject::connect(&ac, &AutoConnect::autoConnectRequested, [&](const DiscoveredPeer &p) {
+      captured = p;
+      requested.release();
+    });
 
     // disabled by default: no auto-connect even for paired peers
-    trust.upsert({QStringLiteral("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-                  QByteArray(32, 'k'), QStringLiteral("paired-box"), QStringLiteral("win"),
-                  QDateTime::currentDateTimeUtc(), {}, QDateTime::currentDateTimeUtc()});
+    trust.upsert(
+        {QStringLiteral("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+         QByteArray(32, 'k'),
+         QStringLiteral("paired-box"),
+         QStringLiteral("win"),
+         QDateTime::currentDateTimeUtc(),
+         {},
+         QDateTime::currentDateTimeUtc()}
+    );
     discovery.start(*id, &trust);
     ac.setEnabled(false);
 
     // simulate discovery of the paired peer
-    discovery.ingestTxtForTest({{"device-id", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-                                {"name", "paired-box"},
-                                {"platform", "win"},
-                                {"fp", "aabbccdd"},
-                                {"state", "paired"},
-                                {"port", "25901"}},
-                               "192.168.1.50", 25901);
+    discovery.ingestTxtForTest(
+        {{"device-id", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+         {"name", "paired-box"},
+         {"platform", "win"},
+         {"fp", "aabbccdd"},
+         {"state", "paired"},
+         {"port", "25901"}},
+        "192.168.1.50", 25901
+    );
     QTest::qWait(200);
     QCOMPARE(requested.available(), 0);
 
@@ -90,13 +97,15 @@ private Q_SLOTS:
     QCOMPARE(captured.deviceId, QStringLiteral("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
 
     // one attempt per session: further sightings don't re-fire
-    discovery.ingestTxtForTest({{"device-id", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-                                {"name", "paired-box"},
-                                {"platform", "win"},
-                                {"fp", "aabbccdd"},
-                                {"state", "paired"},
-                                {"port", "25901"}},
-                               "192.168.1.50", 25901);
+    discovery.ingestTxtForTest(
+        {{"device-id", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+         {"name", "paired-box"},
+         {"platform", "win"},
+         {"fp", "aabbccdd"},
+         {"state", "paired"},
+         {"port", "25901"}},
+        "192.168.1.50", 25901
+    );
     QTest::qWait(200);
     QCOMPARE(requested.available(), 1); // unchanged inside the backoff window
   }
@@ -109,8 +118,15 @@ private Q_SLOTS:
     TrustStore trust(dir.path() + "/trust.json");
     DiscoveryService discovery;
     const QString peerId = QStringLiteral("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-    trust.upsert({peerId, QByteArray(32, 'k'), QStringLiteral("other"), QStringLiteral("win"),
-                  QDateTime::currentDateTimeUtc(), {}, QDateTime::currentDateTimeUtc()});
+    trust.upsert(
+        {peerId,
+         QByteArray(32, 'k'),
+         QStringLiteral("other"),
+         QStringLiteral("win"),
+         QDateTime::currentDateTimeUtc(),
+         {},
+         QDateTime::currentDateTimeUtc()}
+    );
 
     AutoConnect ac(*id, trust, discovery);
     ac.setBackoffScheduleForTest({40, 40, 40});
@@ -119,13 +135,15 @@ private Q_SLOTS:
 
     discovery.start(*id, &trust);
     ac.setEnabled(true);
-    discovery.ingestTxtForTest({{"device-id", peerId},
-                                {"name", "other"},
-                                {"platform", "win"},
-                                {"fp", "aabbccdd"},
-                                {"state", "paired"},
-                                {"port", "25901"}},
-                               "192.168.1.20", 25901);
+    discovery.ingestTxtForTest(
+        {{"device-id", peerId},
+         {"name", "other"},
+         {"platform", "win"},
+         {"fp", "aabbccdd"},
+         {"state", "paired"},
+         {"port", "25901"}},
+        "192.168.1.20", 25901
+    );
 
     QTRY_COMPARE_WITH_TIMEOUT(requested.available(), 1, 1000);
     // Nobody confirmed the core is up, so the watchdog fires.
@@ -142,13 +160,15 @@ private Q_SLOTS:
     QTest::qWait(120);
     QCOMPARE(requested.available(), 3); // offline: no further retries
 
-    discovery.ingestTxtForTest({{"device-id", peerId},
-                                {"name", "other"},
-                                {"platform", "win"},
-                                {"fp", "aabbccdd"},
-                                {"state", "paired"},
-                                {"port", "25901"}},
-                               "192.168.1.21", 25901);
+    discovery.ingestTxtForTest(
+        {{"device-id", peerId},
+         {"name", "other"},
+         {"platform", "win"},
+         {"fp", "aabbccdd"},
+         {"state", "paired"},
+         {"port", "25901"}},
+        "192.168.1.21", 25901
+    );
     QTRY_COMPARE_WITH_TIMEOUT(requested.available(), 4, 1000);
   }
 
@@ -284,8 +304,10 @@ private Q_SLOTS:
     QTemporaryDir dir;
     TrustStore trust(dir.path() + "/trust.json");
     const QString id = QStringLiteral("cccccccccccccccccccccccccccccccc");
-    trust.upsert({id, QByteArray(32, 'k'), QStringLiteral("laptop"), QStringLiteral("win"),
-                  QDateTime::currentDateTimeUtc(), QStringLiteral("192.168.1.23"), QDateTime::currentDateTimeUtc()});
+    trust.upsert(
+        {id, QByteArray(32, 'k'), QStringLiteral("laptop"), QStringLiteral("win"), QDateTime::currentDateTimeUtc(),
+         QStringLiteral("192.168.1.23"), QDateTime::currentDateTimeUtc()}
+    );
     QVERIFY(!trust.updateLastAddr(id, QStringLiteral("192.168.1.23")));
     QVERIFY(trust.updateLastAddr(id, QStringLiteral("192.168.1.20")));
     QCOMPARE(trust.find(id)->lastAddr, QStringLiteral("192.168.1.20"));
@@ -297,8 +319,9 @@ private Q_SLOTS:
 
   void elevatedCoreTaskRunsHighestAndInteractive()
   {
-    const QString script = ElevatedCore::launcherScript(QStringLiteral("C:/Program Files/LiteKVM/litekvm-core.exe"),
-                                                        {QStringLiteral("client")});
+    const QString script = ElevatedCore::launcherScript(
+        QStringLiteral("C:/Program Files/LiteKVM/litekvm-core.exe"), {QStringLiteral("client")}
+    );
     QVERIFY(script.contains(QStringLiteral("\"C:/Program Files/LiteKVM/litekvm-core.exe\" client")));
 
     const auto create =
@@ -327,8 +350,9 @@ private Q_SLOTS:
 
     // a peer with smaller id takes over as server
     QSemaphore changed;
-    connect(&rn, &RoleNegotiation::roleChanged,
-            [&](const QString &, quint64, RoleNegotiation::Role) { changed.release(); });
+    connect(&rn, &RoleNegotiation::roleChanged, [&](const QString &, quint64, RoleNegotiation::Role) {
+      changed.release();
+    });
     rn.setOnline(QStringLiteral("0000-small-id"));
     QCOMPARE(changed.available(), 1);
     QCOMPARE(rn.currentServer(), QStringLiteral("0000-small-id"));

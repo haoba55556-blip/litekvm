@@ -11,7 +11,8 @@ namespace litekvm {
  * When launched with --autostart the GUI hides to tray and auto-connects
  * to any paired peer discovered on the LAN.
  */
-class AutoStart {
+class AutoStart
+{
 public:
   static bool supported();
   static bool isEnabled();

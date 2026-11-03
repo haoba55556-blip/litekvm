@@ -10,14 +10,16 @@
 namespace litekvm {
 
 namespace {
-constexpr int kFrameHeaderBytes = 2;      // big-endian length prefix
+constexpr int kFrameHeaderBytes = 2; // big-endian length prefix
 constexpr int kMaxFrameSize = 64 * 1024;
 constexpr int kMaxWrongCodeAttempts = 5;
-constexpr int kLockoutSeconds = 600;      // 10 minutes per spec §5
+constexpr int kLockoutSeconds = 600; // 10 minutes per spec §5
 } // namespace
 
 PairingService::PairingService(const DeviceIdentity &self, TrustStore &trust, QObject *parent)
-  : QObject(parent), m_self(self), m_trust(trust)
+    : QObject(parent),
+      m_self(self),
+      m_trust(trust)
 {
 }
 
@@ -218,8 +220,7 @@ void PairingService::handlePairVerify(QTcpSocket *sock, const QJsonObject &msg)
   }
 
   // code correct — verify HMAC proof then exchange keys
-  const QByteArray expectedMac =
-      hmacPairVerify(m_codes.value(sock).toUtf8(), nonceIt->first, nonceIt->second);
+  const QByteArray expectedMac = hmacPairVerify(m_codes.value(sock).toUtf8(), nonceIt->first, nonceIt->second);
   const QByteArray macA = QByteArray::fromHex(msg.value("hmac_a").toString().toUtf8());
   if (!verifyPairHmac(macA, m_codes.value(sock).toUtf8(), nonceIt->first, nonceIt->second)) {
     sendError(sock, Error::WrongCode);
@@ -241,18 +242,14 @@ void PairingService::handlePairVerify(QTcpSocket *sock, const QJsonObject &msg)
   }
   m_trust.upsert(entry);
 
-  const QByteArray pubB64 = QByteArray(reinterpret_cast<const char *>(m_self.publicKey().data()),
-                                       qsizetype(m_self.publicKey().size()))
-                                .toBase64();
+  const QByteArray pubB64 =
+      QByteArray(reinterpret_cast<const char *>(m_self.publicKey().data()), qsizetype(m_self.publicKey().size()))
+          .toBase64();
   const QString hmacB =
       QString::fromUtf8(hmacPairVerify(codeFor(sock).toUtf8(), nonceIt->first, nonceIt->second).toHex());
   QJsonObject accept{
-      {"type", "PAIR_ACCEPT"},
-      {"hmac_b", hmacB},
-      {"pubkey", QString::fromLatin1(pubB64)},
-      {"device_id", m_self.deviceId()},
-      {"name", m_self.name()},
-      {"platform", platformString()},
+      {"type", "PAIR_ACCEPT"},          {"hmac_b", hmacB},       {"pubkey", QString::fromLatin1(pubB64)},
+      {"device_id", m_self.deviceId()}, {"name", m_self.name()}, {"platform", platformString()},
   };
   sendJson(sock, accept);
   Q_EMIT pairingSucceeded(entry.deviceId, entry.name);
@@ -314,7 +311,7 @@ QString PairingService::platformString()
 void PairingService::pairWith(const DiscoveredPeer &peer)
 {
   auto *sock = new QTcpSocket(this);
-  sock->setProxy(QNetworkProxy::NoProxy);  // 局域网配对直连，绕过系统代理
+  sock->setProxy(QNetworkProxy::NoProxy); // 局域网配对直连，绕过系统代理
   connect(sock, &QTcpSocket::connected, this, [this, sock] {
     // A → PAIR_REQUEST
     m_clientNonceA = randomNonce(32);
@@ -363,9 +360,9 @@ void PairingService::submitPairCode(const QString &code)
       {"hmac_a", QString::fromUtf8(macA.toHex())},
       {"pubkey",
        QString::fromLatin1(
-           QByteArray(reinterpret_cast<const char *>(m_self.publicKey().data()),
-                      qsizetype(m_self.publicKey().size()))
-               .toBase64())},
+           QByteArray(reinterpret_cast<const char *>(m_self.publicKey().data()), qsizetype(m_self.publicKey().size()))
+               .toBase64()
+       )},
       {"peer_device_id", m_self.deviceId()},
       {"peer_name", m_self.name()},
       {"peer_platform", platformString()},

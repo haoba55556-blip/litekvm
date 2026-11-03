@@ -126,7 +126,9 @@ std::optional<QJsonObject> ClipFileService::decodeFrame(const QByteArray &payloa
 // -------------------------------------------------------------- lifecycle
 
 ClipFileService::ClipFileService(const DeviceIdentity &self, TrustStore &trust, QObject *parent)
-  : QObject(parent), m_self(self), m_trust(trust)
+    : QObject(parent),
+      m_self(self),
+      m_trust(trust)
 {
   connect(&m_server, &QTcpServer::newConnection, this, &ClipFileService::onNewConnection);
 
@@ -153,8 +155,7 @@ bool ClipFileService::listen(quint16 port)
     return false;
   }
   if (!m_server.listen(QHostAddress::AnyIPv4, port)) {
-    reportError(Error::Listen,
-                QStringLiteral("listen failed on port %1: %2").arg(port).arg(m_server.errorString()));
+    reportError(Error::Listen, QStringLiteral("listen failed on port %1: %2").arg(port).arg(m_server.errorString()));
     return false;
   }
   m_role = Role::Server;
@@ -178,8 +179,7 @@ quint16 ClipFileService::serverPort() const
   return m_server.serverPort();
 }
 
-void ClipFileService::sendFilesTo(const QString &host, quint16 port, const QStringList &paths,
-                                  const QString &intent)
+void ClipFileService::sendFilesTo(const QString &host, quint16 port, const QStringList &paths, const QString &intent)
 {
   if (paths.isEmpty()) {
     reportError(Error::Protocol, QStringLiteral("sendFilesTo(): no paths given"));
@@ -345,10 +345,14 @@ void ClipFileService::refuseBusy(QTcpSocket *socket)
 {
   connect(socket, &QTcpSocket::readyRead, socket, [socket] { socket->readAll(); }); // drain -> clean FIN
   connect(socket, &QTcpSocket::disconnected, socket, &QTcpSocket::deleteLater);
-  sendJson(socket,
-           QJsonObject{{QStringLiteral("type"), str(kHelloRejectType)},
-                       {QStringLiteral("code"), str(kCodeBusy)},
-                       {QStringLiteral("proto"), protocolVersion()}});
+  sendJson(
+      socket,
+      QJsonObject{
+          {QStringLiteral("type"), str(kHelloRejectType)},
+          {QStringLiteral("code"), str(kCodeBusy)},
+          {QStringLiteral("proto"), protocolVersion()}
+      }
+  );
   QTimer::singleShot(kBusyCloseDelayMs, socket, [socket] {
     if (socket->state() != QAbstractSocket::UnconnectedState)
       socket->disconnectFromHost();
@@ -360,8 +364,11 @@ void ClipFileService::onHandshakeTimeout()
   if (m_helloDone || !m_socket)
     return;
   if (m_socket->state() == QAbstractSocket::ConnectedState) {
-    reportError(Error::HandshakeTimeout,
-                QStringLiteral("no CALP_HELLO from %1 within %2 ms").arg(m_socket->peerAddress().toString()).arg(m_handshakeTimeoutMs));
+    reportError(
+        Error::HandshakeTimeout, QStringLiteral("no CALP_HELLO from %1 within %2 ms")
+                                     .arg(m_socket->peerAddress().toString())
+                                     .arg(m_handshakeTimeoutMs)
+    );
   } else {
     reportError(Error::Socket, QStringLiteral("peer did not connect within %1 ms").arg(m_handshakeTimeoutMs));
   }
@@ -504,11 +511,16 @@ void ClipFileService::handleHandshakeMessage(QTcpSocket *socket, const QJsonObje
     m_peerName = msg.value(QStringLiteral("name")).toString();
     notePeerSeen(deviceId, socket->peerAddress());
 
-    sendJson(socket, QJsonObject{{QStringLiteral("type"), str(kHelloOkType)},
-                                 {QStringLiteral("proto"), protocolVersion()},
-                                 {QStringLiteral("device_id"), m_self.deviceId()},
-                                 {QStringLiteral("name"), m_self.name()},
-                                 {QStringLiteral("platform"), PairingService::platformString()}});
+    sendJson(
+        socket,
+        QJsonObject{
+            {QStringLiteral("type"), str(kHelloOkType)},
+            {QStringLiteral("proto"), protocolVersion()},
+            {QStringLiteral("device_id"), m_self.deviceId()},
+            {QStringLiteral("name"), m_self.name()},
+            {QStringLiteral("platform"), PairingService::platformString()}
+        }
+    );
     completeHandshake();
     return;
   }
@@ -568,18 +580,22 @@ void ClipFileService::notePeerSeen(const QString &deviceId, const QHostAddress &
   }
 }
 
-void ClipFileService::rejectHandshake(QTcpSocket *socket, Error error, const char *code,
-                                     const QString &claimedDeviceId)
+void ClipFileService::rejectHandshake(QTcpSocket *socket, Error error, const char *code, const QString &claimedDeviceId)
 {
-  sendJson(socket,
-           QJsonObject{{QStringLiteral("type"), str(kHelloRejectType)},
-                       {QStringLiteral("code"), str(code)},
-                       {QStringLiteral("proto"), protocolVersion()}});
+  sendJson(
+      socket,
+      QJsonObject{
+          {QStringLiteral("type"), str(kHelloRejectType)},
+          {QStringLiteral("code"), str(code)},
+          {QStringLiteral("proto"), protocolVersion()}
+      }
+  );
   if (error == Error::NotPaired) {
-    reportError(error,
-                QStringLiteral("peer %1 is not a paired device (%2; temporary device_id-only check, channel not authenticated)")
-                    .arg(claimedDeviceId.isEmpty() ? QStringLiteral("<no device_id>") : claimedDeviceId.left(8),
-                         str(code)));
+    reportError(
+        error,
+        QStringLiteral("peer %1 is not a paired device (%2; temporary device_id-only check, channel not authenticated)")
+            .arg(claimedDeviceId.isEmpty() ? QStringLiteral("<no device_id>") : claimedDeviceId.left(8), str(code))
+    );
   } else {
     reportError(error, QStringLiteral("handshake refused (%1)").arg(str(code)));
   }
@@ -598,8 +614,9 @@ void ClipFileService::startTransfer()
 
   auto *transfer = new ClipFileTransfer(m_socket, this);
   m_transfer = transfer;
-  transfer->setIncomingDirectory(m_incomingDir.isEmpty() ? ClipFileTransfer::defaultIncomingDirectory()
-                                                         : m_incomingDir);
+  transfer->setIncomingDirectory(
+      m_incomingDir.isEmpty() ? ClipFileTransfer::defaultIncomingDirectory() : m_incomingDir
+  );
   transfer->setAutoAccept(m_autoAccept);
   if (m_chunkSize > 0)
     transfer->setChunkSize(m_chunkSize);
@@ -624,21 +641,25 @@ void ClipFileService::forwardTransferSignals(ClipFileTransfer *transfer)
 
   // A session carries exactly one transfer: every terminal state tears the
   // session down (which cancels the transfer and removes its ".litekvm-part").
-  connect(transfer, &ClipFileTransfer::transferCompleted, this,
-          [this](const QStringList &localPaths, const QString &transferId) {
-            Q_EMIT transferCompleted(localPaths, transferId);
-            closeSession();
-          });
+  connect(
+      transfer, &ClipFileTransfer::transferCompleted, this,
+      [this](const QStringList &localPaths, const QString &transferId) {
+        Q_EMIT transferCompleted(localPaths, transferId);
+        closeSession();
+      }
+  );
   connect(transfer, &ClipFileTransfer::transferCancelled, this, [this](const QString &transferId) {
     Q_EMIT transferCancelled(transferId);
     closeSession();
   });
-  connect(transfer, &ClipFileTransfer::transferFailed, this,
-          [this](ClipFileTransfer::Error error, const QString &detail) {
-            // Already reported through transferFailed(); no extra errorOccurred().
-            Q_EMIT transferFailed(error, detail);
-            closeSession();
-          });
+  connect(
+      transfer, &ClipFileTransfer::transferFailed, this,
+      [this](ClipFileTransfer::Error error, const QString &detail) {
+        // Already reported through transferFailed(); no extra errorOccurred().
+        Q_EMIT transferFailed(error, detail);
+        closeSession();
+      }
+  );
 }
 
 // ----------------------------------------------------------------- cleanup

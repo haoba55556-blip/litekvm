@@ -18,14 +18,14 @@ QByteArray randomNonce(int bytes = 32);
  * PAIR_CODE = HKDF-SHA256(nonceA || nonceB || fpA || fpB,
  *                         salt="litekvm-pair-v1", info="PAIR_CODE")[0..4] % 1e6
  */
-QString derivePairCode(const QByteArray &nonceA, const QByteArray &nonceB, const QString &fpA,
-                       const QString &fpB);
+QString derivePairCode(const QByteArray &nonceA, const QByteArray &nonceB, const QString &fpA, const QString &fpB);
 
 /// HMAC-SHA256(code, nonceA || nonceB) — cross-verification token
 QByteArray hmacPairVerify(const QByteArray &code, const QByteArray &nonceA, const QByteArray &nonceB);
 
 /// constant-time comparison of the received MAC against expectation
-bool verifyPairHmac(const QByteArray &expectedMac, const QByteArray &code, const QByteArray &nonceA,
-                    const QByteArray &nonceB);
+bool verifyPairHmac(
+    const QByteArray &expectedMac, const QByteArray &code, const QByteArray &nonceA, const QByteArray &nonceB
+);
 
 } // namespace litekvm

@@ -25,12 +25,12 @@ namespace litekvm {
  * exit, not a transient TCP blip the core already retries itself — schedules
  * another attempt. A host change (DHCP) while "up" requests a fresh connect.
  */
-class AutoConnect : public QObject {
+class AutoConnect : public QObject
+{
   Q_OBJECT
 
 public:
-  AutoConnect(const DeviceIdentity &self, TrustStore &trust, DiscoveryService &discovery,
-              QObject *parent = nullptr);
+  AutoConnect(const DeviceIdentity &self, TrustStore &trust, DiscoveryService &discovery, QObject *parent = nullptr);
 
   void setEnabled(bool on);
   bool enabled() const

@@ -15,7 +15,8 @@
 
 namespace litekvm {
 
-struct TrustEntry {
+struct TrustEntry
+{
   QString deviceId;
   QByteArray pubkey; // raw Ed25519 public key (32 bytes)
   QString name;
@@ -29,7 +30,8 @@ struct TrustEntry {
  * @brief JSON-persisted list of paired devices. Reconnect trusts device_id,
  * never IP addresses.
  */
-class TrustStore {
+class TrustStore
+{
 public:
   explicit TrustStore(const QString &filePath = {});
 

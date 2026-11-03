@@ -17,7 +17,8 @@ class QUdpSocket;
 
 namespace litekvm {
 
-struct NicHint {
+struct NicHint
+{
   QString humanName;
   QString systemName;
   bool isUp = false;

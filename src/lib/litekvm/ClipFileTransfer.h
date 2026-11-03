@@ -45,13 +45,15 @@ namespace litekvm {
 
 /// One file (or one directory) inside a transfer. Wire metadata only — the
 /// sender's absolute source path is kept aside so it never hits the wire.
-struct ClipFileEntry {
+struct ClipFileEntry
+{
   QString relPath; ///< UTF-8 relative path, '/' separated ("sub/中文.txt")
   qint64 size = 0;
   bool isDirectory = false;
 };
 
-struct ClipFileOffer {
+struct ClipFileOffer
+{
   QString transferId;
   QString peerName;
   QList<ClipFileEntry> entries;
@@ -71,11 +73,13 @@ struct ClipFileOffer {
  * verified it), so the sender only reports success once the bytes are verified
  * on disk at the other end.
  */
-class ClipFileTransfer : public QObject {
+class ClipFileTransfer : public QObject
+{
   Q_OBJECT
 
 public:
-  enum class Error {
+  enum class Error
+  {
     None,
     Io,
     Checksum,
@@ -89,13 +93,14 @@ public:
   Q_ENUM(Error)
   static QString toString(Error error);
 
-  enum class State {
+  enum class State
+  {
     Idle,
-    Offering,     ///< sender: CLIP_OFFER sent, waiting for CLIP_ACCEPT
+    Offering,      ///< sender: CLIP_OFFER sent, waiting for CLIP_ACCEPT
     OfferReceived, ///< receiver: CLIP_OFFER parsed, waiting for the user
-    Sending,      ///< sender: streaming chunks
-    AwaitingAck,  ///< sender: CLIP_COMPLETE sent, waiting for CLIP_DONE
-    Receiving,    ///< receiver: writing chunks
+    Sending,       ///< sender: streaming chunks
+    AwaitingAck,   ///< sender: CLIP_COMPLETE sent, waiting for CLIP_DONE
+    Receiving,     ///< receiver: writing chunks
     Completed,
     Cancelled,
     Failed,
@@ -219,7 +224,8 @@ private Q_SLOTS:
   void pump();
 
 private:
-  struct DestPath {
+  struct DestPath
+  {
     QString finalPath;
     QString partPath;
   };
@@ -242,8 +248,7 @@ private:
   static QString uniqueDestinationPath(const QString &desired);
 
   // ---- staging
-  bool appendEntry(const QString &relPath, qint64 size, bool isDirectory, const QString &localPath,
-                   qint64 *totalBytes);
+  bool appendEntry(const QString &relPath, qint64 size, bool isDirectory, const QString &localPath, qint64 *totalBytes);
   bool stagePaths(const QStringList &paths);
 
   // ---- sender

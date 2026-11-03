@@ -5,12 +5,12 @@
 // Spec: docs/discovery-pairing-spec.md §6 (litekvm-design repo)
 #include "TrustStore.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QDateTime>
 
 namespace litekvm {
 
@@ -139,9 +139,10 @@ void TrustStore::upsert(const TrustEntry &entry)
 bool TrustStore::remove(const QString &deviceId)
 {
   const auto before = m_entries.size();
-  m_entries.erase(std::remove_if(m_entries.begin(), m_entries.end(),
-                                 [&](const TrustEntry &e) { return e.deviceId == deviceId; }),
-                  m_entries.end());
+  m_entries.erase(
+      std::remove_if(m_entries.begin(), m_entries.end(), [&](const TrustEntry &e) { return e.deviceId == deviceId; }),
+      m_entries.end()
+  );
   if (m_entries.size() != before) {
     save();
     return true;

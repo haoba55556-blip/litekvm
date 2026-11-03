@@ -59,7 +59,8 @@ namespace litekvm {
  * --no-gui) the object still classifies mime data and just never touches the
  * OS clipboard.
  */
-class ClipboardFileBridge : public QObject {
+class ClipboardFileBridge : public QObject
+{
   Q_OBJECT
 
 public:
@@ -131,7 +132,8 @@ public:
   static QStringList normalizedPaths(const QStringList &localPaths);
 
   /// What a clipboard or drag payload should become on the wire.
-  struct CapturedPayload {
+  struct CapturedPayload
+  {
     QStringList paths;
     /// "clipboard" (files/folders) or "image" (bitmap written to @p paths).
     QString intent;

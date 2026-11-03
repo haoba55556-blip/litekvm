@@ -15,13 +15,14 @@ bool containsAny(const QString &blob)
 {
   // QStringLiteral, not Latin-1: "蓝牙" is not a single-byte string.
   const QStringList needles = {
-      QStringLiteral("wi-fi direct"), QStringLiteral("wifi direct"), QStringLiteral("wi fi direct"),
-      QStringLiteral("wifidirect"),   QStringLiteral("bluetooth"),   QStringLiteral("蓝牙"),
-      QStringLiteral("hyper-v"),      QStringLiteral("vethernet"),   QStringLiteral("wsl"),
-      QStringLiteral("virtualbox"),   QStringLiteral("vmware"),      QStringLiteral("vbox"),
-      QStringLiteral("docker"),       QStringLiteral("npcap"),       QStringLiteral("teredo"),
-      QStringLiteral("isatap"),       QStringLiteral("loopback"),    QStringLiteral("pseudo-interface"),
-      QStringLiteral("pseudo interface")};
+      QStringLiteral("wi-fi direct"),    QStringLiteral("wifi direct"), QStringLiteral("wi fi direct"),
+      QStringLiteral("wifidirect"),      QStringLiteral("bluetooth"),   QStringLiteral("蓝牙"),
+      QStringLiteral("hyper-v"),         QStringLiteral("vethernet"),   QStringLiteral("wsl"),
+      QStringLiteral("virtualbox"),      QStringLiteral("vmware"),      QStringLiteral("vbox"),
+      QStringLiteral("docker"),          QStringLiteral("npcap"),       QStringLiteral("teredo"),
+      QStringLiteral("isatap"),          QStringLiteral("loopback"),    QStringLiteral("pseudo-interface"),
+      QStringLiteral("pseudo interface")
+  };
   for (const QString &needle : needles) {
     if (blob.contains(needle))
       return true;

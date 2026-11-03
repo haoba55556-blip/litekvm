@@ -100,9 +100,7 @@ bool mimeLooksDelayed(const QMimeData *mime)
 
 // ------------------------------------------------------------------ ctor
 
-ClipboardFileBridge::ClipboardFileBridge(QObject *parent)
-  : QObject(parent)
-  , m_guardTimer(new QTimer(this))
+ClipboardFileBridge::ClipboardFileBridge(QObject *parent) : QObject(parent), m_guardTimer(new QTimer(this))
 {
   m_guardTimer->setSingleShot(true);
   connect(m_guardTimer, &QTimer::timeout, this, &ClipboardFileBridge::onSelfWriteGuardExpired);
@@ -268,8 +266,7 @@ QStringList ClipboardFileBridge::parseWindowsDropFiles(const QByteArray &bytes)
   return normalizedPaths(paths);
 }
 
-ClipboardFileBridge::CapturedPayload ClipboardFileBridge::capture(const QMimeData *mime,
-                                                                  const QString &imageDirectory)
+ClipboardFileBridge::CapturedPayload ClipboardFileBridge::capture(const QMimeData *mime, const QString &imageDirectory)
 {
   CapturedPayload out;
   if (mime == nullptr)

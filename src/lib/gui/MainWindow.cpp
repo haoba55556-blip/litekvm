@@ -16,8 +16,8 @@
 #include "StyleUtils.h"
 
 #include "dialogs/AboutDialog.h"
-#include "dialogs/ClipTransferDialog.h"
 #include "dialogs/ClientConfigDialog.h"
+#include "dialogs/ClipTransferDialog.h"
 #include "dialogs/FingerprintDialog.h"
 #include "dialogs/HelpDialog.h"
 #include "dialogs/ProSettingsDialog.h"
@@ -32,21 +32,21 @@
 #include "gui/TlsUtility.h"
 #include "gui/core/CoreProcess.h"
 #include "gui/ipc/DaemonIpcClient.h"
-#include "gui/widgets/LogDock.h"
 #include "gui/widgets/CollapsiblePanel.h"
 #include "gui/widgets/EdgeFileDrop.h"
+#include "gui/widgets/LogDock.h"
 #include "litekvm/AutoStart.h"
 #include "litekvm/ClipboardFileBridge.h"
 #include "litekvm/DiscoveryService.h"
 #include "net/FingerprintDatabase.h"
 #include "widgets/StatusBar.h"
 
-#include <QDrag>
 #include <QAbstractButton>
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QDesktopServices>
 #include <QDirIterator>
+#include <QDrag>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QInputDialog>
@@ -284,22 +284,19 @@ void MainWindow::reworkPanels()
 
   // --- 附近设备 → collapsible panel ---
   ui->nearbyPanel->setShowTitle(false);
-  m_nearbyCollapsible = new deskflow::gui::CollapsiblePanel(
-      tr("附近的电脑"), ui->nearbyPanel, ui->topLevelWidget);
+  m_nearbyCollapsible = new deskflow::gui::CollapsiblePanel(tr("附近的电脑"), ui->nearbyPanel, ui->topLevelWidget);
   topLayout->addWidget(m_nearbyCollapsible);
 
   // --- 日志 → collapsible panel (reuse LogDock's body widget) ---
   if (m_logDock) {
     if (auto *logBody = m_logDock->widget()) {
-      m_logCollapsible = new deskflow::gui::CollapsiblePanel(
-          tr("日志"), logBody, ui->topLevelWidget);
+      m_logCollapsible = new deskflow::gui::CollapsiblePanel(tr("日志"), logBody, ui->topLevelWidget);
       topLayout->addWidget(m_logCollapsible);
       // Stop docking the log; keep the object for appendLine().
       removeDockWidget(m_logDock);
       m_logDock->setParent(this);
       m_logDock->hide();
-      m_logCollapsible->setExpanded(
-          Settings::value(Settings::Gui::LogExpanded).toBool());
+      m_logCollapsible->setExpanded(Settings::value(Settings::Gui::LogExpanded).toBool());
     }
   }
 
@@ -320,8 +317,7 @@ void MainWindow::reworkPanels()
   }
 
   // --- 一键连接：附近设备已配对 → 自动设置 host 并启动 ---
-  connect(ui->nearbyPanel, &NearbyPanel::connectToPeer,
-          this, [this](const QString &deviceId) {
+  connect(ui->nearbyPanel, &NearbyPanel::connectToPeer, this, [this](const QString &deviceId) {
     for (const auto &target : m_liteKvmController->clipTargets()) {
       if (target.deviceId == deviceId && !target.host.isEmpty()) {
         ui->rbModeClient->setChecked(true);
@@ -1586,9 +1582,7 @@ bool MainWindow::askVisible(const QString &title, const QString &text, const QSt
 void MainWindow::requestSendFiles()
 {
   if (!m_fileClipboardEnabled) {
-    QMessageBox::information(
-        this, kAppName, tr("文件剪贴板没有启用，请先在「设置 → 高级 → 文件剪贴板」里打开它。")
-    );
+    QMessageBox::information(this, kAppName, tr("文件剪贴板没有启用，请先在「设置 → 高级 → 文件剪贴板」里打开它。"));
     return;
   }
 
@@ -1620,7 +1614,10 @@ void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const Q
   const qint64 maxBytes = qint64(Settings::value(Settings::LiteKvm::FileClipboardMaxMb).toInt()) * 1024 * 1024;
   if (maxBytes > 0 && totalBytes > maxBytes) {
     report(tr("这批文件共 %1，超过单次上限 %2，没有发送。可以到设置里调大「单次上限」。")
-               .arg(ClipTransferDialog::formatBytes(quint64(totalBytes)), ClipTransferDialog::formatBytes(quint64(maxBytes))));
+               .arg(
+                   ClipTransferDialog::formatBytes(quint64(totalBytes)),
+                   ClipTransferDialog::formatBytes(quint64(maxBytes))
+               ));
     return;
   }
 
@@ -1687,8 +1684,9 @@ void MainWindow::onLocalFilesCopied(const QStringList &paths, const QString &int
   m_filePromptShowing = false;
 }
 
-void MainWindow::onFileOfferReceived(const QString &peerName, const QStringList &fileNames, qint64 totalBytes,
-                                     int fileCount, const QString &intent)
+void MainWindow::onFileOfferReceived(
+    const QString &peerName, const QStringList &fileNames, qint64 totalBytes, int fileCount, const QString &intent
+)
 {
   if (!m_liteKvmController)
     return;
@@ -1706,13 +1704,14 @@ void MainWindow::onFileOfferReceived(const QString &peerName, const QStringList 
 
   m_incomingClipIntent = intent.isEmpty() ? QStringLiteral("clipboard") : intent;
   // A drag is already in the user's hand; a confirmation dialog would cancel it.
-  const bool autoAccept =
-      m_incomingClipIntent == QLatin1String("drag") || Settings::value(Settings::LiteKvm::FileClipboardAutoAccept).toBool();
+  const bool autoAccept = m_incomingClipIntent == QLatin1String("drag") ||
+                          Settings::value(Settings::LiteKvm::FileClipboardAutoAccept).toBool();
   if (!autoAccept) {
-    const QString question = tr("「%1」想发送 %2 个文件（共 %3）给你。\n接收后文件会存到收件目录，并放进剪贴板，可以直接粘贴。")
-                                 .arg(peerName)
-                                 .arg(fileCount)
-                                 .arg(ClipTransferDialog::formatBytes(quint64(totalBytes)));
+    const QString question =
+        tr("「%1」想发送 %2 个文件（共 %3）给你。\n接收后文件会存到收件目录，并放进剪贴板，可以直接粘贴。")
+            .arg(peerName)
+            .arg(fileCount)
+            .arg(ClipTransferDialog::formatBytes(quint64(totalBytes)));
     if (!askVisible(tr("收到文件"), question, preview)) {
       m_liteKvmController->rejectIncomingFiles();
       return;
@@ -1854,4 +1853,3 @@ qint64 MainWindow::localFilesSize(const QStringList &paths)
   }
   return total;
 }
-

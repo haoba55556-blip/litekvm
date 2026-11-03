@@ -20,8 +20,8 @@
 namespace deskflow::gui {
 
 ProSettingsDialog::ProSettingsDialog(LiteKvmController *controller, QWidget *parent)
-  : QDialog(parent),
-    m_controller(controller)
+    : QDialog(parent),
+      m_controller(controller)
 {
   setWindowTitle(tr("LiteKVM Pro 设置"));
   setModal(true);
@@ -45,10 +45,11 @@ ProSettingsDialog::ProSettingsDialog(LiteKvmController *controller, QWidget *par
   m_chkElevateCore = new QCheckBox(tr("以最高权限运行核心（可控制管理员窗口）"), this);
   m_chkElevateCore->setEnabled(litekvm::ElevatedCore::supported());
   m_chkElevateCore->setChecked(litekvm::ElevatedCore::isEnabled());
-  m_chkElevateCore->setToolTip(tr(
-      "通过计划任务以最高权限启动核心，这样能把键鼠送进「以管理员身份运行」的窗口。"
-      "第一次打开会弹出一次 UAC。"
-      "变暗的 UAC 安全桌面不在这个权限里，那种画面需要用 Windows 服务模式。"));
+  m_chkElevateCore->setToolTip(
+      tr("通过计划任务以最高权限启动核心，这样能把键鼠送进「以管理员身份运行」的窗口。"
+         "第一次打开会弹出一次 UAC。"
+         "变暗的 UAC 安全桌面不在这个权限里，那种画面需要用 Windows 服务模式。")
+  );
 
   auto *formLayout = new QFormLayout;
   formLayout->addRow(m_chkAutoStart);

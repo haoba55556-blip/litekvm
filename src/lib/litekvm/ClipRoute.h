@@ -14,9 +14,10 @@
 
 namespace litekvm {
 
-struct ClipRouteInput {
-  QString liveHost;        ///< peer address of the connected core socket
-  QString liveScreenName;  ///< screen name reported with that socket (may be empty)
+struct ClipRouteInput
+{
+  QString liveHost;       ///< peer address of the connected core socket
+  QString liveScreenName; ///< screen name reported with that socket (may be empty)
   QString deviceId;
   QString deviceName;
   int pairedCount = 1;

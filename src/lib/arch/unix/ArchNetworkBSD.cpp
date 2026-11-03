@@ -427,7 +427,7 @@ std::string ArchNetworkBSD::getSocketPeerAddress(ArchSocket s)
 {
   if (!s)
     return {};
-  sockaddr_storage storage {};
+  sockaddr_storage storage{};
   auto length = static_cast<socklen_t>(sizeof(storage));
   if (getpeername(s->m_fd, reinterpret_cast<sockaddr *>(&storage), &length) != 0)
     return {};

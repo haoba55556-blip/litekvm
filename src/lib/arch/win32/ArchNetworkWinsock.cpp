@@ -626,7 +626,7 @@ std::string ArchNetworkWinsock::getSocketPeerAddress(ArchSocket s)
 {
   if (!s)
     return {};
-  sockaddr_storage storage {};
+  sockaddr_storage storage{};
   int length = sizeof(storage);
   if (getpeername(s->m_socket, reinterpret_cast<sockaddr *>(&storage), &length) != 0)
     return {};
@@ -648,8 +648,10 @@ void ArchNetworkWinsock::setQuickAckOnSocket(ArchSocket s)
   // TCP_NODELAY alone, so this must not throw.
   int frequency = LowLatencySocketPolicy::kWindowsAckFrequency;
   DWORD bytesReturned = 0;
-  WSAIoctl(s->m_socket, SIO_TCP_SET_ACK_FREQUENCY, &frequency, sizeof(frequency), nullptr, 0, &bytesReturned, nullptr,
-           nullptr);
+  WSAIoctl(
+      s->m_socket, SIO_TCP_SET_ACK_FREQUENCY, &frequency, sizeof(frequency), nullptr, 0, &bytesReturned, nullptr,
+      nullptr
+  );
 }
 
 void ArchNetworkWinsock::setKeepAliveOnSocket(ArchSocket s, bool keepAlive)

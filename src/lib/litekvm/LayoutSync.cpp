@@ -43,17 +43,15 @@ QJsonObject LayoutSync::layoutToJson(const ScreenLayout &layout)
 {
   QJsonArray screens;
   for (const auto &s : layout.screens) {
-    screens.append(QJsonObject{{"device_id", s.deviceId},
-                               {"x", s.x},
-                               {"y", s.y},
-                               {"w", s.w},
-                               {"h", s.h}});
+    screens.append(QJsonObject{{"device_id", s.deviceId}, {"x", s.x}, {"y", s.y}, {"w", s.w}, {"h", s.h}});
   }
-  return QJsonObject{{"type", "LAYOUT_UPDATE"},
-                     {"rev", layout.rev},
-                     {"updated_by", layout.updatedBy},
-                     {"ts", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
-                     {"screens", screens}};
+  return QJsonObject{
+      {"type", "LAYOUT_UPDATE"},
+      {"rev", layout.rev},
+      {"updated_by", layout.updatedBy},
+      {"ts", QDateTime::currentDateTimeUtc().toString(Qt::ISODate)},
+      {"screens", screens}
+  };
 }
 
 std::optional<ScreenLayout> LayoutSync::layoutFromJson(const QJsonObject &obj)
@@ -82,8 +80,7 @@ std::optional<ScreenLayout> LayoutSync::layoutFromJson(const QJsonObject &obj)
   return out;
 }
 
-LayoutSync::LayoutSync(const DeviceIdentity &self, QObject *parent)
-  : QObject(parent), m_self(self)
+LayoutSync::LayoutSync(const DeviceIdentity &self, QObject *parent) : QObject(parent), m_self(self)
 {
 }
 
@@ -112,7 +109,7 @@ void LayoutSync::stop()
 void LayoutSync::connectToPeer(const QString &host, quint16 port)
 {
   auto *sock = new QTcpSocket(this);
-  sock->setProxy(QNetworkProxy::NoProxy);  // 局域网直连，绕过系统代理
+  sock->setProxy(QNetworkProxy::NoProxy); // 局域网直连，绕过系统代理
   connect(sock, &QTcpSocket::connected, this, [this, sock] {
     m_peers.insert(sock);
     // bring the newcomer up to date immediately
@@ -156,9 +153,7 @@ void LayoutSync::startHeartbeat()
     return;
   m_heartbeat = new QTimer(this);
   connect(m_heartbeat, &QTimer::timeout, this, [this] {
-    static const QByteArray ping = [] {
-      return encodeFrame(QJsonObject{{"type", "PING"}});
-    }();
+    static const QByteArray ping = [] { return encodeFrame(QJsonObject{{"type", "PING"}}); }();
     for (auto *sock : std::as_const(m_peers)) {
       if (sock->state() == QAbstractSocket::ConnectedState)
         sock->write(ping);

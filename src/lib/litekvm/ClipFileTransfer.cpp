@@ -175,10 +175,8 @@ QString ClipFileTransfer::uniqueDestinationPath(const QString &desired)
   const QString base = info.completeBaseName();
   const QString suffix = info.suffix();
   for (int i = 1; i < 1000; ++i) {
-    const QString candidate =
-        suffix.isEmpty()
-            ? QStringLiteral("%1/%2 (%3)").arg(dir, base).arg(i)
-            : QStringLiteral("%1/%2 (%3).%4").arg(dir, base).arg(i).arg(suffix);
+    const QString candidate = suffix.isEmpty() ? QStringLiteral("%1/%2 (%3)").arg(dir, base).arg(i)
+                                               : QStringLiteral("%1/%2 (%3).%4").arg(dir, base).arg(i).arg(suffix);
     if (!QFileInfo::exists(candidate))
       return candidate;
   }
@@ -187,8 +185,7 @@ QString ClipFileTransfer::uniqueDestinationPath(const QString &desired)
 
 // ------------------------------------------------------------- lifecycle
 
-ClipFileTransfer::ClipFileTransfer(QIODevice *channel, QObject *parent)
-  : QObject(parent), m_channel(channel)
+ClipFileTransfer::ClipFileTransfer(QIODevice *channel, QObject *parent) : QObject(parent), m_channel(channel)
 {
   if (m_channel) {
     connect(m_channel, &QIODevice::readyRead, this, &ClipFileTransfer::onChannelReadyRead);
@@ -369,8 +366,7 @@ void ClipFileTransfer::onOfferTimeout()
 void ClipFileTransfer::sendLocalPaths(const QStringList &paths)
 {
   if (m_state != State::Idle) {
-    failed(Error::Protocol,
-           QStringLiteral("sendLocalPaths() while %1").arg(toString(m_state)));
+    failed(Error::Protocol, QStringLiteral("sendLocalPaths() while %1").arg(toString(m_state)));
     return;
   }
   if (!m_channel) {
@@ -416,8 +412,7 @@ void ClipFileTransfer::sendLocalPaths(const QStringList &paths)
   offer.insert(QStringLiteral("total_bytes"), double(m_totalBytes));
   offer.insert(QStringLiteral("file_count"), entries.size());
   offer.insert(QStringLiteral("entries"), entries);
-  offer.insert(QStringLiteral("intent"),
-               m_outgoingIntent.isEmpty() ? QStringLiteral("clipboard") : m_outgoingIntent);
+  offer.insert(QStringLiteral("intent"), m_outgoingIntent.isEmpty() ? QStringLiteral("clipboard") : m_outgoingIntent);
 
   m_state = State::Offering;
   sendJson(offer);
@@ -427,8 +422,9 @@ void ClipFileTransfer::sendLocalPaths(const QStringList &paths)
     m_offerTimer->start(m_offerTimeoutMs);
 }
 
-bool ClipFileTransfer::appendEntry(const QString &relPath, qint64 size, bool isDirectory,
-                                   const QString &localPath, qint64 *totalBytes)
+bool ClipFileTransfer::appendEntry(
+    const QString &relPath, qint64 size, bool isDirectory, const QString &localPath, qint64 *totalBytes
+)
 {
   const std::string normalized = normalizeRelativePath(toStdString(relPath.toUtf8()));
   if (!isSafeRelativePath(normalized)) {
@@ -455,8 +451,7 @@ bool ClipFileTransfer::appendEntry(const QString &relPath, qint64 size, bool isD
     if (totalBytes) {
       *totalBytes += entry.size;
       if (*totalBytes > m_maxTransferBytes) {
-        failed(Error::TooLarge,
-               QStringLiteral("transfer exceeds %1 bytes").arg(m_maxTransferBytes));
+        failed(Error::TooLarge, QStringLiteral("transfer exceeds %1 bytes").arg(m_maxTransferBytes));
         return false;
       }
     }
@@ -638,18 +633,19 @@ void ClipFileTransfer::pump()
     }
 
     ChunkHeader header;
-    if (!makeChunkHeader(m_nextSeq, m_entryOffset,
-                         reinterpret_cast<const std::uint8_t *>(buffer.constData()),
-                         std::size_t(buffer.size()), &header)) {
+    if (!makeChunkHeader(
+            m_nextSeq, m_entryOffset, reinterpret_cast<const std::uint8_t *>(buffer.constData()),
+            std::size_t(buffer.size()), &header
+        )) {
       failed(Error::Protocol, QStringLiteral("chunk header rejected"));
       return;
     }
 
     const std::vector<std::uint8_t> headerBytes = encodeChunkHeader(header);
-    const std::vector<std::uint8_t> frame =
-        encodeDataFrame(headerBytes.data(), headerBytes.size(),
-                        reinterpret_cast<const std::uint8_t *>(buffer.constData()),
-                        std::size_t(buffer.size()));
+    const std::vector<std::uint8_t> frame = encodeDataFrame(
+        headerBytes.data(), headerBytes.size(), reinterpret_cast<const std::uint8_t *>(buffer.constData()),
+        std::size_t(buffer.size())
+    );
     if (frame.empty()) {
       failed(Error::Protocol, QStringLiteral("chunk frame rejected"));
       return;
@@ -749,8 +745,7 @@ bool ClipFileTransfer::openIncomingEntry(int index, qint64 resumeFrom)
   m_outFile.reset(new QFile(dest.partPath));
 
   qint64 keep = 0;
-  if (resumeFrom > 0 && QFileInfo::exists(dest.partPath) &&
-      QFileInfo(dest.partPath).size() == resumeFrom) {
+  if (resumeFrom > 0 && QFileInfo::exists(dest.partPath) && QFileInfo(dest.partPath).size() == resumeFrom) {
     keep = resumeFrom;
   }
 
@@ -834,8 +829,7 @@ void ClipFileTransfer::onChannelReadyRead()
   if (incoming.isEmpty())
     return;
 
-  m_decoder.append(reinterpret_cast<const std::uint8_t *>(incoming.constData()),
-                   std::size_t(incoming.size()));
+  m_decoder.append(reinterpret_cast<const std::uint8_t *>(incoming.constData()), std::size_t(incoming.size()));
 
   ClipFrame frame;
   while (m_decoder.next(&frame)) {
@@ -963,9 +957,8 @@ void ClipFileTransfer::handleOffer(const QJsonObject &msg)
   offer.totalBytes = m_totalBytes;
   offer.chunkSize = m_chunkSize;
   const QString intent = msg.value(QStringLiteral("intent")).toString();
-  offer.intent = (intent == QLatin1String("image") || intent == QLatin1String("drag"))
-                     ? intent
-                     : QStringLiteral("clipboard");
+  offer.intent =
+      (intent == QLatin1String("image") || intent == QLatin1String("drag")) ? intent : QStringLiteral("clipboard");
 
   m_state = State::OfferReceived;
   m_progress = TransferProgress{0, std::uint64_t(m_totalBytes)};
@@ -1074,8 +1067,7 @@ void ClipFileTransfer::handleComplete(const QJsonObject &msg)
 
   const int index = msg.value(QStringLiteral("entry_index")).toInt(-1);
   if (index != m_entryIndex) {
-    failed(Error::Protocol,
-           QStringLiteral("CLIP_COMPLETE for entry %1, expected %2").arg(index).arg(m_entryIndex));
+    failed(Error::Protocol, QStringLiteral("CLIP_COMPLETE for entry %1, expected %2").arg(index).arg(m_entryIndex));
     return;
   }
   if (msg.value(QStringLiteral("transfer_id")).toString() != m_transferId) {
@@ -1097,17 +1089,17 @@ void ClipFileTransfer::handleComplete(const QJsonObject &msg)
   } else {
     if (m_entryOffset != std::uint64_t(entry.size)) {
       sendError(QStringLiteral("SIZE"));
-      failed(Error::Protocol,
-             QStringLiteral("%1 expected %2 bytes, got %3")
-                 .arg(entry.relPath)
-                 .arg(entry.size)
-                 .arg(m_entryOffset));
+      failed(
+          Error::Protocol,
+          QStringLiteral("%1 expected %2 bytes, got %3").arg(entry.relPath).arg(entry.size).arg(m_entryOffset)
+      );
       return;
     }
     if (ourSha1.compare(peerSha1, Qt::CaseInsensitive) != 0) {
       sendError(QStringLiteral("CHECKSUM"));
-      failed(Error::Checksum,
-             QStringLiteral("%1 sha1 mismatch: peer %2, local %3").arg(entry.relPath, peerSha1, ourSha1));
+      failed(
+          Error::Checksum, QStringLiteral("%1 sha1 mismatch: peer %2, local %3").arg(entry.relPath, peerSha1, ourSha1)
+      );
       return;
     }
 
@@ -1168,9 +1160,10 @@ void ClipFileTransfer::handleData(const std::vector<std::uint8_t> &payload)
   }
   if (header.seq != m_nextSeq || header.offset != m_entryOffset) {
     sendError(QStringLiteral("PROTO"));
-    failed(Error::Protocol, QStringLiteral("out-of-order chunk: seq %1 offset %2")
-                                 .arg(header.seq)
-                                 .arg(qulonglong(header.offset)));
+    failed(
+        Error::Protocol,
+        QStringLiteral("out-of-order chunk: seq %1 offset %2").arg(header.seq).arg(qulonglong(header.offset))
+    );
     return;
   }
   if (!chunkDigestMatches(header, data)) {
@@ -1182,9 +1175,7 @@ void ClipFileTransfer::handleData(const std::vector<std::uint8_t> &payload)
   const ClipFileEntry entry = m_entries.value(m_entryIndex);
   if (entry.isDirectory) {
     if (dataLen != 0) {
-      failed(Error::Protocol, QStringLiteral("peer sent %1 bytes for directory %2")
-                                  .arg(dataLen)
-                                  .arg(entry.relPath));
+      failed(Error::Protocol, QStringLiteral("peer sent %1 bytes for directory %2").arg(dataLen).arg(entry.relPath));
       return;
     }
   } else {

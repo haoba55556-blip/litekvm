@@ -181,7 +181,9 @@ void ClipTransferDialog::refreshProgressText()
   m_bar->setValue(permille);
 
   if (m_running) {
-    m_lblDetail->setText(tr("%1% · %2 / %3%4").arg(permille / 10).arg(formatBytes(m_done), formatBytes(m_total), speedText()));
+    m_lblDetail->setText(
+        tr("%1% · %2 / %3%4").arg(permille / 10).arg(formatBytes(m_done), formatBytes(m_total), speedText())
+    );
   } else {
     m_lblDetail->setText(m_endMessage);
   }

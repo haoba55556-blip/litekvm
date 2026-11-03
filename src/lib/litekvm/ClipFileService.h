@@ -80,11 +80,13 @@ namespace litekvm {
  * Only then is the socket handed over — the service stops reading it so
  * ClipFileTransfer is the sole consumer of its bytes.
  */
-class ClipFileService : public QObject {
+class ClipFileService : public QObject
+{
   Q_OBJECT
 
 public:
-  enum class Error {
+  enum class Error
+  {
     None,
     Listen,           ///< listen() failed
     Busy,             ///< session in flight, or client used while listening
@@ -96,7 +98,12 @@ public:
   Q_ENUM(Error)
   static QString toString(Error error);
 
-  enum class Role { None, Server, Client };
+  enum class Role
+  {
+    None,
+    Server,
+    Client
+  };
   Q_ENUM(Role)
   static QString toString(Role role);
 
@@ -128,8 +135,9 @@ public:
   // --------------------------------------------------------------- client
   /// Connects to @p host:@p port, completes the paired-device handshake and
   /// sends @p paths. Every failure surfaces as errorOccurred().
-  void sendFilesTo(const QString &host, quint16 port, const QStringList &paths,
-                   const QString &intent = QStringLiteral("clipboard"));
+  void sendFilesTo(
+      const QString &host, quint16 port, const QStringList &paths, const QString &intent = QStringLiteral("clipboard")
+  );
 
   // ------------------------------------------------- receiver-side actions
   /// Answer the current CLIP_OFFER; a no-op when no transfer is live. The
@@ -191,8 +199,7 @@ private:
   void handleHandshakeMessage(QTcpSocket *socket, const QJsonObject &msg);
   void completeHandshake();
   void notePeerSeen(const QString &deviceId, const QHostAddress &address);
-  void rejectHandshake(QTcpSocket *socket, Error error, const char *code,
-                       const QString &claimedDeviceId = QString());
+  void rejectHandshake(QTcpSocket *socket, Error error, const char *code, const QString &claimedDeviceId = QString());
   void refuseBusy(QTcpSocket *socket);
   void startTransfer();
   void forwardTransferSignals(ClipFileTransfer *transfer);
@@ -210,11 +217,11 @@ private:
 
   Role m_role = Role::None;
   QByteArray m_buffer;
-  bool m_helloDone = false;      ///< peer identity accepted; socket handed over
-  bool m_closing = false;        ///< re-entrancy guard for closeSession()
+  bool m_helloDone = false; ///< peer identity accepted; socket handed over
+  bool m_closing = false;   ///< re-entrancy guard for closeSession()
   QString m_peerDeviceId;
   QString m_peerName;
-  QStringList m_pendingPaths;    ///< client: staged by sendFilesTo()
+  QStringList m_pendingPaths; ///< client: staged by sendFilesTo()
   QString m_pendingIntent = QStringLiteral("clipboard");
 
   QString m_incomingDir;

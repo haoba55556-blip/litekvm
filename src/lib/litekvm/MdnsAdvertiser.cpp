@@ -49,13 +49,12 @@ void appendU32(QByteArray &out, quint32 v)
 }
 
 // build one answer record (single name, given type + rdata)
-QByteArray buildAnswer(const QString &fullName, quint16 type, const QByteArray &rdata,
-                       quint32 ttl = 4500)
+QByteArray buildAnswer(const QString &fullName, quint16 type, const QByteArray &rdata, quint32 ttl = 4500)
 {
   QByteArray a;
   appendDnsName(a, fullName);
   appendU16(a, type);
-  appendU16(a, 1);           // class IN + cache-flush bit (0x8001) would be typical; use plain IN
+  appendU16(a, 1);              // class IN + cache-flush bit (0x8001) would be typical; use plain IN
   a[a.size() - 2] = char(0x80); // set cache-flush bit on class field
   appendU32(a, ttl);
   appendU16(a, quint16(rdata.size()));
@@ -83,8 +82,7 @@ bool MdnsAdvertiser::start(const DeviceIdentity &self, uint16_t pairingPort, Pee
   const auto share = QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint;
   if (m_socket.state() != QAbstractSocket::UnconnectedState)
     m_socket.close();
-  if (!m_socket.bind(QHostAddress::AnyIPv4, kMdnsPort, share) &&
-      !m_socket.bind(QHostAddress::AnyIPv4, 0, share)) {
+  if (!m_socket.bind(QHostAddress::AnyIPv4, kMdnsPort, share) && !m_socket.bind(QHostAddress::AnyIPv4, 0, share)) {
     return false;
   }
 
@@ -113,29 +111,31 @@ void MdnsAdvertiser::stop()
 
 QStringList MdnsAdvertiser::txtFields() const
 {
-  return {QStringLiteral("device-id=%1").arg(m_self->deviceId()),
-          QStringLiteral("name=%1").arg(m_self->name()),
-          QStringLiteral("platform=")
+  return {
+      QStringLiteral("device-id=%1").arg(m_self->deviceId()),
+      QStringLiteral("name=%1").arg(m_self->name()),
+      QStringLiteral("platform=")
 #if defined(Q_OS_WIN)
-              + QStringLiteral("win")
+          + QStringLiteral("win")
 #elif defined(Q_OS_MAC)
-              + QStringLiteral("mac")
+          + QStringLiteral("mac")
 #else
-              + QStringLiteral("linux")
+          + QStringLiteral("linux")
 #endif
           ,
-          QStringLiteral("fp=%1").arg(m_self->fingerprint()), QStringLiteral("proto=v1"),
-          QStringLiteral("port=%1").arg(m_pairingPort),
-          QStringLiteral("state=%1")
-              .arg(m_state == PeerState::Pairable ? QStringLiteral("pairable") : QStringLiteral("busy"))};
+      QStringLiteral("fp=%1").arg(m_self->fingerprint()),
+      QStringLiteral("proto=v1"),
+      QStringLiteral("port=%1").arg(m_pairingPort),
+      QStringLiteral("state=%1")
+          .arg(m_state == PeerState::Pairable ? QStringLiteral("pairable") : QStringLiteral("busy"))
+  };
 }
 
 QByteArray MdnsAdvertiser::buildAnnouncement() const
 {
-  const QString instance = QStringLiteral("%1.%2").arg(sanitizeInstanceName(m_self->name()),
-                                                       DiscoveryService::kServiceType);
-  const QString serviceEnum =
-      DiscoveryService::kServiceType;                       // _litekvm._tcp.local.
+  const QString instance =
+      QStringLiteral("%1.%2").arg(sanitizeInstanceName(m_self->name()), DiscoveryService::kServiceType);
+  const QString serviceEnum = DiscoveryService::kServiceType; // _litekvm._tcp.local.
   const QString host = QStringLiteral("%1.local.").arg(m_self->deviceId());
 
   // --- PTR: _litekvm._tcp.local. -> <instance> ---

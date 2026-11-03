@@ -54,7 +54,8 @@ QByteArray controlFrame(const QJsonObject &msg)
 
 } // namespace
 
-class ClipFileTransferTests : public QObject {
+class ClipFileTransferTests : public QObject
+{
   Q_OBJECT
 
 private Q_SLOTS:
@@ -67,25 +68,30 @@ private Q_SLOTS:
     const QList<int> sizes = {0, 1, 55, 56, 63, 64, 65, 1000, 65536, 300 * 1024 + 7};
     for (const int size : sizes) {
       const QByteArray data = pseudoRandom(size, unsigned(size) + 7);
-      const std::string ours =
-          clipsha1::hex(clipsha1::digest(data.constData(), std::size_t(data.size())));
+      const std::string ours = clipsha1::hex(clipsha1::digest(data.constData(), std::size_t(data.size())));
       const QByteArray qt = QCryptographicHash::hash(data, QCryptographicHash::Sha1).toHex();
       QCOMPARE(QString::fromStdString(ours), QString::fromLatin1(qt));
     }
 
     // known vectors
-    QCOMPARE(QString::fromStdString(clipsha1::hex(clipsha1::digest("abc", 3))),
-             QStringLiteral("a9993e364706816aba3e25717850c26c9cd0d89d"));
-    QCOMPARE(QString::fromStdString(clipsha1::hex(clipsha1::digest("", 0))),
-             QStringLiteral("da39a3ee5e6b4b0d3255bfef95601890afd80709"));
+    QCOMPARE(
+        QString::fromStdString(clipsha1::hex(clipsha1::digest("abc", 3))),
+        QStringLiteral("a9993e364706816aba3e25717850c26c9cd0d89d")
+    );
+    QCOMPARE(
+        QString::fromStdString(clipsha1::hex(clipsha1::digest("", 0))),
+        QStringLiteral("da39a3ee5e6b4b0d3255bfef95601890afd80709")
+    );
 
     // incremental hashing must equal one-shot hashing
     clipsha1::Sha1 streamed;
     const QByteArray big = pseudoRandom(200 * 1024, 11);
     streamed.update(big.constData(), 12345);
     streamed.update(big.constData() + 12345, std::size_t(big.size()) - 12345);
-    QCOMPARE(QString::fromStdString(streamed.hex()),
-             QString::fromLatin1(QCryptographicHash::hash(big, QCryptographicHash::Sha1).toHex()));
+    QCOMPARE(
+        QString::fromStdString(streamed.hex()),
+        QString::fromLatin1(QCryptographicHash::hash(big, QCryptographicHash::Sha1).toHex())
+    );
   }
 
   void frameRoundtripAndDecoderGuards()
@@ -108,9 +114,7 @@ private Q_SLOTS:
       while (decoder.next(&out)) {
         ++seen;
         QCOMPARE(int(out.kind), int(ClipFrameKind::Control));
-        QCOMPARE(QByteArray(reinterpret_cast<const char *>(out.payload.data()),
-                            qsizetype(out.payload.size())),
-                 json);
+        QCOMPARE(QByteArray(reinterpret_cast<const char *>(out.payload.data()), qsizetype(out.payload.size())), json);
       }
     }
     QCOMPARE(seen, 1);
@@ -131,8 +135,9 @@ private Q_SLOTS:
     QVERIFY(bad1.failed());
 
     FrameDecoder bad2;
-    const std::uint8_t oversized[] = {static_cast<std::uint8_t>(ClipFrameKind::Data), 0x00, 0x50,
-                                      0x00, 0x01}; // 5 MiB + 1
+    const std::uint8_t oversized[] = {
+        static_cast<std::uint8_t>(ClipFrameKind::Data), 0x00, 0x50, 0x00, 0x01
+    }; // 5 MiB + 1
     bad2.append(oversized, sizeof(oversized));
     QVERIFY(!bad2.next(&out));
     QVERIFY(bad2.failed());
@@ -142,13 +147,16 @@ private Q_SLOTS:
   {
     const QByteArray data = pseudoRandom(int(kClipDefaultChunkSize), 42);
     ChunkHeader header;
-    QVERIFY(makeChunkHeader(7, 3 * kClipDefaultChunkSize,
-                            reinterpret_cast<const std::uint8_t *>(data.constData()),
-                            std::size_t(data.size()), &header));
+    QVERIFY(makeChunkHeader(
+        7, 3 * kClipDefaultChunkSize, reinterpret_cast<const std::uint8_t *>(data.constData()),
+        std::size_t(data.size()), &header
+    ));
     QCOMPARE(header.seq, std::uint32_t(7));
     QCOMPARE(header.dataLen, std::uint32_t(data.size()));
-    QCOMPARE(QString::fromStdString(header.digestHex()),
-             QString::fromLatin1(QCryptographicHash::hash(data, QCryptographicHash::Sha1).toHex()));
+    QCOMPARE(
+        QString::fromStdString(header.digestHex()),
+        QString::fromLatin1(QCryptographicHash::hash(data, QCryptographicHash::Sha1).toHex())
+    );
 
     const std::vector<std::uint8_t> payload =
         encodeDataPayload(header, reinterpret_cast<const std::uint8_t *>(data.constData()));
@@ -162,8 +170,7 @@ private Q_SLOTS:
     QVERIFY(chunkDigestMatches(back, bytes));
 
     // a 256 KiB chunk must survive one data frame round trip
-    const std::vector<std::uint8_t> frame = encodeDataFrame(payload.data(), kClipChunkHeaderBytes,
-                                                           bytes, len);
+    const std::vector<std::uint8_t> frame = encodeDataFrame(payload.data(), kClipChunkHeaderBytes, bytes, len);
     QCOMPARE(int(frame[0]), int(ClipFrameKind::Data));
     QCOMPARE(int(be32Read(frame.data() + 1)), int(kClipChunkHeaderBytes + len));
     FrameDecoder decoder;
@@ -196,17 +203,20 @@ private Q_SLOTS:
   void chunkPlanCoversFileExactly()
   {
     const std::size_t cs = kClipDefaultChunkSize;
-    struct Expect {
+    struct Expect
+    {
       std::uint64_t size;
       std::uint64_t count;
     };
-    const QList<Expect> cases = {{0, 1},
-                                 {1, 1},
-                                 {std::uint64_t(cs) - 1, 1},
-                                 {std::uint64_t(cs), 1},
-                                 {std::uint64_t(cs) + 1, 2},
-                                 {std::uint64_t(3 * cs), 3},
-                                 {std::uint64_t(3 * cs) + 1, 4}};
+    const QList<Expect> cases = {
+        {0, 1},
+        {1, 1},
+        {std::uint64_t(cs) - 1, 1},
+        {std::uint64_t(cs), 1},
+        {std::uint64_t(cs) + 1, 2},
+        {std::uint64_t(3 * cs), 3},
+        {std::uint64_t(3 * cs) + 1, 4}
+    };
 
     for (const Expect &expected : cases) {
       const ChunkPlan plan(expected.size, cs);
@@ -247,16 +257,14 @@ private Q_SLOTS:
     QVERIFY(!isSafeRelativePath("a/"));
     QVERIFY(!isSafeRelativePath(std::string(4097, 'a')));
 
-    QCOMPARE(QString::fromStdString(normalizeRelativePath("dir\\sub/file.txt")),
-             QStringLiteral("dir/sub/file.txt"));
+    QCOMPARE(QString::fromStdString(normalizeRelativePath("dir\\sub/file.txt")), QStringLiteral("dir/sub/file.txt"));
     QCOMPARE(QString::fromStdString(normalizeRelativePath("./a//b/./c/")), QStringLiteral("a/b/c"));
     // normalization keeps "..", the safety check is what rejects it
     QVERIFY(!isSafeRelativePath(normalizeRelativePath("..\\..\\etc")));
 
     QCOMPARE(QString::fromStdString(sanitizeFileName("a<b>?c:d")), QStringLiteral("a_b__c_d"));
     QCOMPARE(QString::fromStdString(sanitizeFileName("trailing. ")), QStringLiteral("trailing"));
-    QCOMPARE(QString::fromStdString(partPathFor("a/b.bin")),
-             QStringLiteral("a/b.bin.litekvm-part"));
+    QCOMPARE(QString::fromStdString(partPathFor("a/b.bin")), QStringLiteral("a/b.bin.litekvm-part"));
     QCOMPARE(QString::fromStdString(parentDirOf("a/b.bin")), QStringLiteral("a"));
   }
 
@@ -284,8 +292,10 @@ private Q_SLOTS:
     const QString path = writeTempFile(dir.path() + QStringLiteral("/中文.bin"), content);
     QVERIFY(!path.isEmpty());
 
-    QCOMPARE(ClipFileTransfer::fileSha1(path),
-             QString::fromLatin1(QCryptographicHash::hash(content, QCryptographicHash::Sha1).toHex()));
+    QCOMPARE(
+        ClipFileTransfer::fileSha1(path),
+        QString::fromLatin1(QCryptographicHash::hash(content, QCryptographicHash::Sha1).toHex())
+    );
     QVERIFY(ClipFileTransfer::fileSha1(dir.path() + QStringLiteral("/missing.bin")).isEmpty());
     QVERIFY(ClipFileTransfer::defaultIncomingDirectory().contains(QStringLiteral("LiteKVM")));
     QCOMPARE(ClipFileTransfer::defaultChunkSize(), 256 * 1024);
@@ -345,8 +355,10 @@ private Q_SLOTS:
     QFile received(landed.at(0));
     QVERIFY(received.open(QIODevice::ReadOnly));
     QCOMPARE(received.readAll(), content); // byte-for-byte
-    QCOMPARE(ClipFileTransfer::fileSha1(landed.at(0)),
-             QString::fromLatin1(QCryptographicHash::hash(content, QCryptographicHash::Sha1).toHex()));
+    QCOMPARE(
+        ClipFileTransfer::fileSha1(landed.at(0)),
+        QString::fromLatin1(QCryptographicHash::hash(content, QCryptographicHash::Sha1).toHex())
+    );
     // the temp file must not be left behind
     QVERIFY(!QFileInfo::exists(landed.at(0) + QString::fromLatin1(kClipPartSuffix)));
   }
@@ -386,8 +398,10 @@ private Q_SLOTS:
     QCOMPARE(QFileInfo(dest + QStringLiteral("/a.txt")).size(), qint64(6));
     QCOMPARE(QFileInfo(dest + QStringLiteral("/子目录/b.bin")).size(), qint64(big.size()));
     QVERIFY(QFileInfo(dest + QStringLiteral("/空的")).isDir()); // empty dirs survive
-    QCOMPARE(ClipFileTransfer::fileSha1(dest + QStringLiteral("/子目录/b.bin")),
-             QString::fromLatin1(QCryptographicHash::hash(big, QCryptographicHash::Sha1).toHex()));
+    QCOMPARE(
+        ClipFileTransfer::fileSha1(dest + QStringLiteral("/子目录/b.bin")),
+        QString::fromLatin1(QCryptographicHash::hash(big, QCryptographicHash::Sha1).toHex())
+    );
   }
 
   void receiverRejectionFailsTheSender()
@@ -407,8 +421,9 @@ private Q_SLOTS:
     QVERIFY(incoming.isValid());
     receiver.setIncomingDirectory(incoming.path());
     receiver.setAutoAccept(false);
-    connect(&receiver, &ClipFileTransfer::offerReceived, &receiver,
-            [&receiver](const ClipFileOffer &) { receiver.rejectOffer(QStringLiteral("USER")); });
+    connect(&receiver, &ClipFileTransfer::offerReceived, &receiver, [&receiver](const ClipFileOffer &) {
+      receiver.rejectOffer(QStringLiteral("USER"));
+    });
 
     QTemporaryDir source;
     QVERIFY(source.isValid());
@@ -419,8 +434,9 @@ private Q_SLOTS:
 
     sender.sendLocalPaths({source.path() + QStringLiteral("/x.txt")});
     QTRY_VERIFY_WITH_TIMEOUT(senderFailureSpy.count() == 1, 10000);
-    QCOMPARE(int(senderFailureSpy.at(0).at(0).value<ClipFileTransfer::Error>()),
-             int(ClipFileTransfer::Error::Rejected));
+    QCOMPARE(
+        int(senderFailureSpy.at(0).at(0).value<ClipFileTransfer::Error>()), int(ClipFileTransfer::Error::Rejected)
+    );
     QCOMPARE(doneSpy.count(), 0);
     QCOMPARE(int(receiver.state()), int(ClipFileTransfer::State::Cancelled));
   }
@@ -432,8 +448,7 @@ private Q_SLOTS:
 
     QTemporaryDir source;
     QVERIFY(source.isValid());
-    const QString path = writeTempFile(source.path() + QStringLiteral("/big.bin"),
-                                       pseudoRandom(8 * 1024 * 1024, 1));
+    const QString path = writeTempFile(source.path() + QStringLiteral("/big.bin"), pseudoRandom(8 * 1024 * 1024, 1));
     QVERIFY(!path.isEmpty());
 
     ClipFileTransfer sender(&channel);
@@ -469,8 +484,7 @@ private Q_SLOTS:
 
     sender.sendLocalPaths({source.path() + QStringLiteral("/a.bin")});
     QCOMPARE(failureSpy.count(), 1);
-    QCOMPARE(int(failureSpy.at(0).at(0).value<ClipFileTransfer::Error>()),
-             int(ClipFileTransfer::Error::TooLarge));
+    QCOMPARE(int(failureSpy.at(0).at(0).value<ClipFileTransfer::Error>()), int(ClipFileTransfer::Error::TooLarge));
     QCOMPARE(int(sender.state()), int(ClipFileTransfer::State::Failed));
   }
 
@@ -482,13 +496,16 @@ private Q_SLOTS:
     ClipFileTransfer receiver(&channel);
     QSignalSpy failureSpy(&receiver, &ClipFileTransfer::transferFailed);
 
-    const QByteArray frame = controlFrame(QJsonObject{
-        {"type", "CLIP_OFFER"},
-        {"proto", "v1"},
-        {"transfer_id", "0123456789abcdef0123456789abcdef"},
-        {"chunk_size", 256 * 1024},
-        {"total_bytes", 4.0},
-        {"entries", QJsonArray{QJsonObject{{"rel_path", "a.txt"}, {"size", 4.0}, {"is_dir", false}}}}});
+    const QByteArray frame = controlFrame(
+        QJsonObject{
+            {"type", "CLIP_OFFER"},
+            {"proto", "v1"},
+            {"transfer_id", "0123456789abcdef0123456789abcdef"},
+            {"chunk_size", 256 * 1024},
+            {"total_bytes", 4.0},
+            {"entries", QJsonArray{QJsonObject{{"rel_path", "a.txt"}, {"size", 4.0}, {"is_dir", false}}}}
+        }
+    );
     channel.write(frame);
     QVERIFY(channel.seek(0));
     // QBuffer signals readyRead with the cursor already at the end, so feed the
@@ -496,8 +513,7 @@ private Q_SLOTS:
     QVERIFY(QMetaObject::invokeMethod(&receiver, "onChannelReadyRead", Qt::DirectConnection));
 
     QTRY_COMPARE_WITH_TIMEOUT(failureSpy.count(), 1, 5000);
-    QCOMPARE(int(failureSpy.at(0).at(0).value<ClipFileTransfer::Error>()),
-             int(ClipFileTransfer::Error::Io));
+    QCOMPARE(int(failureSpy.at(0).at(0).value<ClipFileTransfer::Error>()), int(ClipFileTransfer::Error::Io));
     QCOMPARE(int(receiver.state()), int(ClipFileTransfer::State::Failed));
   }
 
@@ -512,15 +528,16 @@ private Q_SLOTS:
     receiver.setIncomingDirectory(incoming.path());
     QSignalSpy failureSpy(&receiver, &ClipFileTransfer::transferFailed);
 
-    const QByteArray frame = controlFrame(QJsonObject{
-        {"type", "CLIP_OFFER"},
-        {"proto", "v1"},
-        {"transfer_id", "0123456789abcdef0123456789abcdef"},
-        {"chunk_size", 256 * 1024},
-        {"total_bytes", 4.0},
-        {"entries", QJsonArray{QJsonObject{{"rel_path", "../../evil.txt"},
-                                           {"size", 4.0},
-                                           {"is_dir", false}}}}});
+    const QByteArray frame = controlFrame(
+        QJsonObject{
+            {"type", "CLIP_OFFER"},
+            {"proto", "v1"},
+            {"transfer_id", "0123456789abcdef0123456789abcdef"},
+            {"chunk_size", 256 * 1024},
+            {"total_bytes", 4.0},
+            {"entries", QJsonArray{QJsonObject{{"rel_path", "../../evil.txt"}, {"size", 4.0}, {"is_dir", false}}}}
+        }
+    );
     channel.write(frame);
     QVERIFY(channel.seek(0));
     // QBuffer signals readyRead with the cursor already at the end, so feed the
@@ -528,8 +545,7 @@ private Q_SLOTS:
     QVERIFY(QMetaObject::invokeMethod(&receiver, "onChannelReadyRead", Qt::DirectConnection));
 
     QTRY_COMPARE_WITH_TIMEOUT(failureSpy.count(), 1, 5000);
-    QCOMPARE(int(failureSpy.at(0).at(0).value<ClipFileTransfer::Error>()),
-             int(ClipFileTransfer::Error::Protocol));
+    QCOMPARE(int(failureSpy.at(0).at(0).value<ClipFileTransfer::Error>()), int(ClipFileTransfer::Error::Protocol));
     QVERIFY(!QFileInfo::exists(incoming.path() + QStringLiteral("/../../evil.txt")));
   }
 };

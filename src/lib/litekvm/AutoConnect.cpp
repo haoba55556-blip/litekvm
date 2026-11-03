@@ -14,9 +14,12 @@ namespace {
 const QList<int> kDefaultBackoffMs = {1000, 2000, 4000, 8000, 10000};
 }
 
-AutoConnect::AutoConnect(const DeviceIdentity &self, TrustStore &trust, DiscoveryService &discovery,
-                         QObject *parent)
-  : QObject(parent), m_self(self), m_trust(trust), m_discovery(discovery), m_backoffMs(kDefaultBackoffMs)
+AutoConnect::AutoConnect(const DeviceIdentity &self, TrustStore &trust, DiscoveryService &discovery, QObject *parent)
+    : QObject(parent),
+      m_self(self),
+      m_trust(trust),
+      m_discovery(discovery),
+      m_backoffMs(kDefaultBackoffMs)
 {
   connect(&m_discovery, &DiscoveryService::peerDiscovered, this, &AutoConnect::onPeerSeen);
   connect(&m_discovery, &DiscoveryService::peerUpdated, this, &AutoConnect::onPeerSeen);

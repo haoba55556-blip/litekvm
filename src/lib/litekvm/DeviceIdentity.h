@@ -21,7 +21,8 @@ namespace litekvm {
  * - fingerprint = hex(SHA256(pubkey)[0..8]) — shown to user during pairing.
  * - Stored as JSON (pub/priv base64) under the app data dir.
  */
-class DeviceIdentity {
+class DeviceIdentity
+{
 public:
   static std::optional<DeviceIdentity> loadOrCreate(const QString &storageFileOverride = {});
 

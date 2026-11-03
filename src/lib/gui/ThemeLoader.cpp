@@ -102,12 +102,9 @@ void applyAppFont()
 {
   // CJK-first stack: the primary audience runs Chinese Windows.
   static const QStringList kUiFontFamilies{
-      QStringLiteral("Microsoft YaHei UI"),
-      QStringLiteral("Microsoft YaHei"),
-      QStringLiteral("Segoe UI"),
-      QStringLiteral("Inter"),
-      QStringLiteral("Noto Sans CJK SC"),
-      QStringLiteral("Source Han Sans SC"),
+      QStringLiteral("Microsoft YaHei UI"), QStringLiteral("Microsoft YaHei"),
+      QStringLiteral("Segoe UI"),           QStringLiteral("Inter"),
+      QStringLiteral("Noto Sans CJK SC"),   QStringLiteral("Source Han Sans SC"),
   };
 
   QFont font = QApplication::font();

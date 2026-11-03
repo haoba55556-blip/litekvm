@@ -13,7 +13,8 @@
 
 namespace litekvm {
 
-class DragEdgeGate {
+class DragEdgeGate
+{
 public:
   static constexpr qint64 kDebounceMs = 1500;
 

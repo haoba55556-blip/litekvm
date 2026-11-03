@@ -20,10 +20,12 @@ namespace litekvm {
 const QString DiscoveryService::kServiceType = QStringLiteral("_litekvm._tcp.local.");
 
 namespace {
-constexpr qint64 kStaleAfterMs = 30'000;   // drop peers silent for 30s
+constexpr qint64 kStaleAfterMs = 30'000; // drop peers silent for 30s
 } // namespace
 
-DiscoveryService::DiscoveryService(QObject *parent) : QObject(parent) {}
+DiscoveryService::DiscoveryService(QObject *parent) : QObject(parent)
+{
+}
 
 DiscoveryService::~DiscoveryService()
 {
@@ -81,7 +83,7 @@ QByteArray DiscoveryService::buildBrowseQuery()
   packet.append(char(0));
   packet.append(char(0)); // flags
   packet.append(char(0));
-  packet.append(char(1)); // qdcount
+  packet.append(char(1));                // qdcount
   packet.append(QByteArray(6, char(0))); // an/ns/ar
   appendName(packet, kServiceType);
   packet.append(char(0));
@@ -184,8 +186,9 @@ void DiscoveryService::onReadyRead()
   }
 }
 
-void DiscoveryService::ingestTxtRecord(const QMap<QString, QString> &txt, const QString &host,
-                                       uint16_t port, bool notify)
+void DiscoveryService::ingestTxtRecord(
+    const QMap<QString, QString> &txt, const QString &host, uint16_t port, bool notify
+)
 {
   DiscoveredPeer p;
   p.deviceId = txt.value("device-id");
@@ -213,8 +216,7 @@ void DiscoveryService::ingestTxtRecord(const QMap<QString, QString> &txt, const 
     Q_EMIT peerUpdated(p);
 }
 
-void DiscoveryService::ingestTxtForTest(const QMap<QString, QString> &txt, const QString &host,
-                                        quint16 port)
+void DiscoveryService::ingestTxtForTest(const QMap<QString, QString> &txt, const QString &host, quint16 port)
 {
   ingestTxtRecord(txt, host, port, true);
 }

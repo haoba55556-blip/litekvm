@@ -54,7 +54,8 @@ QStringList trickyPaths(const QString &dir)
 
 } // namespace
 
-class ClipboardFileBridgeTests : public QObject {
+class ClipboardFileBridgeTests : public QObject
+{
   Q_OBJECT
 
 private Q_SLOTS:
@@ -199,8 +200,9 @@ private Q_SLOTS:
 
     // a Windows drive-letter path must not be mistaken for a URL scheme
     const QString drivePath = QDir::toNativeSeparators(QStringLiteral("C:/Users/未命名/报告.txt"));
-    QCOMPARE(ClipboardFileBridge::normalizedPaths({QStringLiteral("C:/Users/未命名/报告.txt")}),
-             QStringList{drivePath});
+    QCOMPARE(
+        ClipboardFileBridge::normalizedPaths({QStringLiteral("C:/Users/未命名/报告.txt")}), QStringList{drivePath}
+    );
 
     QVERIFY(ClipboardFileBridge::normalizedPaths({}).isEmpty());
     QVERIFY(ClipboardFileBridge::normalizedPaths({QString(), QStringLiteral(" ")}).isEmpty());

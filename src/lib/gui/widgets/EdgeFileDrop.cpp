@@ -22,12 +22,15 @@ namespace deskflow::gui {
 
 namespace {
 
-class EdgeStrip : public QWidget {
+class EdgeStrip : public QWidget
+{
 public:
   EdgeStrip(const QRect &geom, EdgeFileDrop *owner) : QWidget(nullptr), m_owner(owner)
   {
-    setWindowFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::WindowDoesNotAcceptFocus |
-                   Qt::NoDropShadowWindowHint);
+    setWindowFlags(
+        Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::WindowDoesNotAcceptFocus |
+        Qt::NoDropShadowWindowHint
+    );
     setAttribute(Qt::WA_ShowWithoutActivating, true);
     setAttribute(Qt::WA_TranslucentBackground, true);
     setAttribute(Qt::WA_TransparentForMouseEvents, false);
@@ -79,7 +82,8 @@ protected:
 private:
   static QStringList pathsFrom(const QMimeData *mime)
   {
-    const auto captured = litekvm::ClipboardFileBridge::capture(mime, litekvm::ClipboardFileBridge::imageDropDirectory());
+    const auto captured =
+        litekvm::ClipboardFileBridge::capture(mime, litekvm::ClipboardFileBridge::imageDropDirectory());
     return captured.paths;
   }
 

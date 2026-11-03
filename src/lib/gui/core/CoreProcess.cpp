@@ -9,8 +9,8 @@
 
 #include "common/ExitCodes.h"
 #include "gui/ipc/CoreIpcClient.h"
-#include "litekvm/ElevatedCore.h"
 #include "gui/ipc/DaemonIpcClient.h"
+#include "litekvm/ElevatedCore.h"
 
 #if defined(Q_OS_MACOS)
 #include "OSXHelpers.h"
@@ -386,8 +386,8 @@ void CoreProcess::start(std::optional<ProcessMode> processModeOption)
 
   setConnectionState(ConnectionState::Connecting);
 
-  m_elevatedLaunch = processMode == ProcessMode::Desktop && litekvm::ElevatedCore::isEnabled() &&
-                     litekvm::ElevatedCore::supported();
+  m_elevatedLaunch =
+      processMode == ProcessMode::Desktop && litekvm::ElevatedCore::isEnabled() && litekvm::ElevatedCore::supported();
 
   if (processMode == ProcessMode::Desktop && !m_elevatedLaunch) {
     m_process = new QProcess(this);
