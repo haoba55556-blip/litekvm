@@ -653,22 +653,6 @@ Además, verifique que puede %1 el archivo de configuración del servidor: %2</t
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>「%1」想发送 %2 个文件（共 %3）给你。</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>接收后文件会存到收件目录，并放进剪贴板，可以直接粘贴。</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>接收</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>拒绝</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>✅ 已发送到「%1」（共 %2）</source>
         <translation type="unfinished"></translation>
     </message>
@@ -726,6 +710,19 @@ Además, verifique que puede %1 el archivo de configuración del servidor: %2</t
     </message>
     <message>
         <source>LiteKVM Pro 设置…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>确定</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>取消</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>「%1」想发送 %2 个文件（共 %3）给你。
+接收后文件会存到收件目录，并放进剪贴板，可以直接粘贴。</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -1741,6 +1738,18 @@ Al habilitar esta opción, se deshabilitará la interfaz gráfica de usuario (GU
     </message>
     <message>
         <source>自动连接已配对设备</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>关闭窗口时最小化到托盘（保持连接）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>以最高权限运行核心（可控制管理员窗口）</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>通过计划任务以最高权限启动核心，这样能把键鼠送进「以管理员身份运行」的窗口。第一次打开会弹出一次 UAC。变暗的 UAC 安全桌面不在这个权限里，那种画面需要用 Windows 服务模式。</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
