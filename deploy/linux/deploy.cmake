@@ -26,6 +26,15 @@ install(
   DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo/
 )
 
+# Flatpak's app-id is still org.deskflow.deskflow. The linter looks for that
+# metainfo name even when CMAKE_PROJECT_REV_FQDN points at the LiteKVM id.
+if(NOT "${CMAKE_PROJECT_REV_FQDN}" STREQUAL "org.deskflow.deskflow")
+  install(
+    FILES ${MY_DIR}/org.deskflow.deskflow.metainfo.xml
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo/
+  )
+endif()
+
 # Prepare PKGBUILD for Arch Linux
 configure_file(
   ${MY_DIR}/arch/PKGBUILD.in
