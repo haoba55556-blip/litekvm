@@ -427,11 +427,9 @@ void ServerConfigDialog::updateLayoutHint()
 
   // 双侧切入的客户端必须是服务器的左右邻居，否则不会生成任何 links（见 ServerConfig::neighbourIndex）。
   if (const auto misconfigured = model().misconfiguredDualSideScreens(); !misconfigured.isEmpty()) {
-    hint.append(
-        tr("<br><br><b>Dual side needs the server next to it:</b> move %1 to the left or right of the "
-           "server, or untick \"Connect to both sides of the neighbouring screen\" for it.")
-            .arg(misconfigured.join(QStringLiteral(", ")))
-    );
+    hint.append(tr("<br><br><b>Dual side needs the server next to it:</b> move %1 to the left or right of the "
+                   "server, or untick \"Connect to both sides of the neighbouring screen\" for it.")
+                    .arg(misconfigured.join(QStringLiteral(", "))));
   }
 
   ui->label_2->setText(hint);

@@ -510,7 +510,8 @@ bool SettingsDialog::isModified() const
       (ui->lineCommandEnter->text() != Settings::value(Settings::Core::ScreenEnterCommand).toString()) ||
       (ui->lineCommandExit->text() != Settings::value(Settings::Core::ScreenExitCommand).toString()) ||
       (ui->groupFileClipboard->isChecked() != Settings::value(Settings::LiteKvm::EnableFileClipboard).toBool()) ||
-      (ui->cbFileClipboardAutoSend->isChecked() != Settings::value(Settings::LiteKvm::FileClipboardAutoSend).toBool()) ||
+      (ui->cbFileClipboardAutoSend->isChecked() != Settings::value(Settings::LiteKvm::FileClipboardAutoSend).toBool()
+      ) ||
       (ui->cbFileClipboardAutoAccept->isChecked() !=
        Settings::value(Settings::LiteKvm::FileClipboardAutoAccept).toBool()) ||
       (ui->sbFileClipboardMaxMb->value() != Settings::value(Settings::LiteKvm::FileClipboardMaxMb).toInt()) ||
@@ -550,7 +551,8 @@ bool SettingsDialog::isDefault() const
       (ui->lineCommandExit->text() == Settings::defaultValue(Settings::Core::ScreenExitCommand).toString()) &&
       (ui->cbRunEnterCommand->isChecked() == Settings::defaultValue(Settings::Core::EnableEnterCommand).toBool()) &&
       (ui->cbRunExitCommand->isChecked() == Settings::defaultValue(Settings::Core::EnableExitCommand).toBool()) &&
-      (ui->groupFileClipboard->isChecked() == Settings::defaultValue(Settings::LiteKvm::EnableFileClipboard).toBool()) &&
+      (ui->groupFileClipboard->isChecked() == Settings::defaultValue(Settings::LiteKvm::EnableFileClipboard).toBool()
+      ) &&
       (ui->cbFileClipboardAutoSend->isChecked() ==
        Settings::defaultValue(Settings::LiteKvm::FileClipboardAutoSend).toBool()) &&
       (ui->cbFileClipboardAutoAccept->isChecked() ==
@@ -579,7 +581,9 @@ void SettingsDialog::resetToDefault()
   ui->lineCommandExit->setText(Settings::defaultValue(Settings::Core::ScreenExitCommand).toString());
   ui->groupFileClipboard->setChecked(Settings::defaultValue(Settings::LiteKvm::EnableFileClipboard).toBool());
   ui->cbFileClipboardAutoSend->setChecked(Settings::defaultValue(Settings::LiteKvm::FileClipboardAutoSend).toBool());
-  ui->cbFileClipboardAutoAccept->setChecked(Settings::defaultValue(Settings::LiteKvm::FileClipboardAutoAccept).toBool());
+  ui->cbFileClipboardAutoAccept->setChecked(
+      Settings::defaultValue(Settings::LiteKvm::FileClipboardAutoAccept).toBool()
+  );
   ui->sbFileClipboardMaxMb->setValue(Settings::defaultValue(Settings::LiteKvm::FileClipboardMaxMb).toInt());
 
   const auto autoHide = Settings::defaultValue(Settings::Gui::Autohide).toBool();
