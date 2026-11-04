@@ -264,6 +264,7 @@ private:
   // doesn't switch screens.
   void noSwitch(int32_t x, int32_t y);
   bool dragEdgeGraceElapsed();
+  bool dragSettleActive();
 
   // stop switch timers
   void stopSwitch();
@@ -407,6 +408,9 @@ private:
   DragEdgeGrace m_dragEdgeGrace;
   Stopwatch m_dragEdgeHold{true};
   bool m_dragEdgeCrossAnnounced = false;
+  bool m_dragInsetLanding = false;
+  bool m_dragSettle = false;
+  Stopwatch m_dragSettleWatch{true};
 
   // Name of screen broadcasting the keyboard events
   std::string m_keyboardBroadcastingScreens;

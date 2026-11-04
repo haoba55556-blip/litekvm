@@ -431,6 +431,17 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
 
   assert(m_active != nullptr);
 
+  if (m_dragInsetLanding) {
+    m_dragInsetLanding = false;
+    const int32_t landedX = x;
+    const int32_t landedY = y;
+    insetFromScreenEdge(dx, dy, dw, dh, 120, x, y);
+    m_dragSettle = true;
+    m_dragSettleWatch.reset();
+    m_dragSettleWatch.start();
+    LOG_INFO("edge drag: landing inset from %d,%d to %d,%d and holding this screen for 1 s", landedX, landedY, x, y);
+  }
+
   LOG_INFO("switch from \"%s\" to \"%s\" at %d,%d", getName(m_active).c_str(), getName(dst).c_str(), x, y);
 
   m_dragEdgeGrace.reset();
@@ -891,9 +902,22 @@ bool Server::dragEdgeGraceElapsed()
   const bool allow = m_dragEdgeGrace.allowSwitch(m_dragEdgeHold.getTime());
   if (allow && !m_dragEdgeCrossAnnounced) {
     m_dragEdgeCrossAnnounced = true;
+    m_dragInsetLanding = true;
     LOG_INFO("edge drag: crossing with the button still held");
   }
   return allow;
+}
+
+bool Server::dragSettleActive()
+{
+  if (!m_dragSettle)
+    return false;
+  if (m_dragSettleWatch.getTime() >= 1.0) {
+    m_dragSettle = false;
+    LOG_INFO("edge drag: settle ended");
+    return false;
+  }
+  return true;
 }
 
 void Server::stopSwitch()
@@ -1776,6 +1800,17 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
   m_xDelta2 = m_xDelta;
   m_yDelta2 = m_yDelta;
 
+  // The primary cursor is warped to its center on leave. That delta, and the
+  // hand still pushing off the shared edge, throw the pointer straight back.
+  // While a drag is landing, drop those spikes and refuse to recross.
+  if (dragSettleActive()) {
+    constexpr int32_t kMaxStep = 64;
+    if (dx > kMaxStep || dx < -kMaxStep)
+      dx = 0;
+    if (dy > kMaxStep || dy < -kMaxStep)
+      dy = 0;
+  }
+
   // save current delta
   m_xDelta = dx;
   m_yDelta = dy;
@@ -1865,7 +1900,7 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
     newScreen = mapToNeighbor(m_active, dir, m_x, m_y);
 
     // see if we should switch
-    if (!isSwitchOkay(newScreen, dir, m_x, m_y, xc, yc)) {
+    if (dragSettleActive() || !isSwitchOkay(newScreen, dir, m_x, m_y, xc, yc)) {
       newScreen = m_active;
       jump = false;
     }
