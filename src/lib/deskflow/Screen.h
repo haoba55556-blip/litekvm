@@ -237,6 +237,9 @@ public:
   */
   bool isLockedToScreen() const;
 
+  //! Which mouse button is down, or false if none. Does not by itself lock the cursor.
+  bool anyMouseButtonDown(uint32_t &buttonID) const;
+
   //! Get jump zone size
   /*!
   Return the jump zone size, the size of the regions on the edges of

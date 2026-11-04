@@ -365,6 +365,11 @@ bool Screen::isLockedToScreen() const
   return false;
 }
 
+bool Screen::anyMouseButtonDown(uint32_t &buttonID) const
+{
+  return m_screen->isAnyMouseButtonDown(buttonID);
+}
+
 int32_t Screen::getJumpZoneSize() const
 {
   if (!m_isPrimary) {

@@ -229,6 +229,7 @@ private:
   // 跨机文件剪贴板
   deskflow::gui::ClipTransferDialog *m_clipTransferDialog = nullptr;
   bool m_fileClipboardEnabled = false;
+  bool m_remoteDragActive = false;
   bool m_filePromptShowing = false;
   bool m_clipTransferOutgoing = false;
   QString m_clipTransferPeer;

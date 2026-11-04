@@ -95,6 +95,7 @@ public:
   Returns true if the user is locked to the screen.
   */
   bool isLockedToScreen() const;
+  bool anyMouseButtonDown(uint32_t &buttonID) const;
 
   //@}
 

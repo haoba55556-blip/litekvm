@@ -403,6 +403,18 @@ private Q_SLOTS:
     QVERIFY(!eatJumpZoneMouseMove(true, true, true));
   }
 
+  void dragEdgeGraceHoldsThenAllowsTheCross()
+  {
+    DragEdgeGrace grace;
+    QVERIFY(!grace.allowSwitch(0.0));
+    QVERIFY(grace.armed());
+    QVERIFY(!grace.allowSwitch(0.2));
+    QVERIFY(grace.allowSwitch(DragEdgeGrace::kSeconds));
+    grace.reset();
+    QVERIFY(!grace.armed());
+    QVERIFY(!grace.allowSwitch(10.0));
+  }
+
   void roleFailsOverAfterHysteresis()
   {
     QTemporaryDir dir;

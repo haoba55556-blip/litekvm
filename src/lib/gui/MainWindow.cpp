@@ -45,11 +45,15 @@
 #include <QAbstractButton>
 #include <QCheckBox>
 #include <QCloseEvent>
+#include <QCoreApplication>
+#include <QCursor>
 #include <QDesktopServices>
 #include <QDirIterator>
 #include <QDrag>
+#include <QElapsedTimer>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QInputDialog>
 #include <QLocalServer>
 #include <QLocalSocket>
@@ -69,6 +73,13 @@
 
 #if defined(Q_OS_MACOS)
 #include <ApplicationServices/ApplicationServices.h>
+#endif
+
+#if defined(Q_OS_WIN)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
 #endif
 
 using namespace deskflow::gui;
@@ -1560,18 +1571,89 @@ void MainWindow::onEdgeFilesDragged(const QStringList &paths)
   sendFiles(paths, true, QStringLiteral("drag"));
 }
 
+namespace {
+
+bool dragButtonHeld()
+{
+#if defined(Q_OS_WIN)
+  return (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+#else
+  return QGuiApplication::mouseButtons().testFlag(Qt::LeftButton);
+#endif
+}
+
+QString dropActionName(Qt::DropAction action)
+{
+  switch (action) {
+  case Qt::CopyAction:
+    return QStringLiteral("copy");
+  case Qt::MoveAction:
+    return QStringLiteral("move");
+  case Qt::LinkAction:
+    return QStringLiteral("link");
+  case Qt::IgnoreAction:
+    return QStringLiteral("none");
+  default:
+    return QString::number(int(action));
+  }
+}
+
+} // namespace
+
 void MainWindow::startRemoteDrag(const QStringList &paths)
 {
-  QWidget *source = m_edgeDrop ? m_edgeDrop->dragSource() : nullptr;
-  if (!source || paths.isEmpty())
+  if (m_remoteDragActive)
     return;
+  if (paths.isEmpty()) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("DoDragDrop"), QStringLiteral("result=none reason=no-paths")
+    );
+    return;
+  }
+
+  // The file can arrive before the cursor crosses. Wait until the button is
+  // down on this machine (the core replays it on enter) so OLE does not
+  // return before the user can release over a window.
+  QElapsedTimer wait;
+  wait.start();
+  while (!dragButtonHeld() && wait.elapsed() < 2000) {
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+  }
+  if (!dragButtonHeld()) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("DoDragDrop"), QStringLiteral("result=none reason=button-up paths=%1").arg(paths.size())
+    );
+    return;
+  }
+
+  // Not the layered edge strip: that window is not a usable IDropSource.
+  auto *source = new QWidget(nullptr, Qt::Tool | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
+  source->setAttribute(Qt::WA_ShowWithoutActivating, true);
+  source->setFixedSize(1, 1);
+  source->move(QCursor::pos());
+  source->show();
+
   auto *mime = litekvm::ClipboardFileBridge::makeFileMimeData(paths);
-  if (!mime)
+  if (!mime) {
+    source->deleteLater();
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("DoDragDrop"), QStringLiteral("result=none reason=no-mime")
+    );
     return;
+  }
+
+  m_remoteDragActive = true;
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("DoDragDrop"), QStringLiteral("start paths=%1 first=%2").arg(paths.size()).arg(paths.first())
+  );
   QDrag drag(source);
-  drag.setMimeData(mime); // QDrag takes ownership
-  // Windows: QDrag::exec is DoDragDrop. The cursor is already on this machine.
-  drag.exec(Qt::CopyAction);
+  drag.setMimeData(mime); // QDrag takes ownership. Windows: exec() is DoDragDrop.
+  const Qt::DropAction result = drag.exec(Qt::CopyAction);
+  m_remoteDragActive = false;
+  source->deleteLater();
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("DoDragDrop"), QStringLiteral("result=%1 paths=%2").arg(dropActionName(result)).arg(paths.size())
+  );
 }
 
 bool MainWindow::askVisible(const QString &title, const QString &text, const QString &detail)
@@ -1807,15 +1889,15 @@ void MainWindow::onFileTransferCompleted(const QStringList &localPaths, bool out
     message = folder.isEmpty() ? tr("✅ 已接收 %1 个文件").arg(localPaths.size())
                                : tr("✅ 已接收 %1 个文件到 %2").arg(localPaths.size()).arg(folder);
 
-    // 收到的文件直接挂到本机剪贴板，用户 Ctrl+V 就能用。
-    // 拖放过来的再起一次 QDrag（Windows 上是 DoDragDrop），光标已经在这台机器上。
-    if (m_liteKvmController && !localPaths.isEmpty())
-      m_liteKvmController->copyFilesToClipboard(localPaths);
     const QString intent = m_incomingClipIntent;
     m_incomingClipIntent.clear();
     if (intent == QLatin1String("drag") && !localPaths.isEmpty()) {
+      // Drop under the cursor. Do not also plant the files on the clipboard;
+      // that is the copy-paste path and makes a drag feel like Ctrl+V.
       const QStringList dragged = localPaths;
       QTimer::singleShot(0, this, [this, dragged] { startRemoteDrag(dragged); });
+    } else if (m_liteKvmController && !localPaths.isEmpty()) {
+      m_liteKvmController->copyFilesToClipboard(localPaths);
     }
   }
 

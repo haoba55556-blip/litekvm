@@ -14,3 +14,36 @@ inline bool eatJumpZoneMouseMove(bool insideJumpZone, bool bogusPosition, bool a
 {
   return insideJumpZone && !bogusPosition && !anyMouseButtonDown;
 }
+
+// Hold the screen switch briefly after the cursor hits the edge with a button
+// down, long enough for the edge strip to receive DragEnter, then let the
+// cursor cross while the button is still held so the other machine can drop.
+class DragEdgeGrace
+{
+public:
+  static constexpr double kSeconds = 0.4;
+
+  void reset()
+  {
+    m_armed = false;
+  }
+
+  bool armed() const
+  {
+    return m_armed;
+  }
+
+  /// First call arms and refuses. Later calls allow once @p elapsedSeconds
+  /// since that arming reaches kSeconds.
+  bool allowSwitch(double elapsedSeconds)
+  {
+    if (!m_armed) {
+      m_armed = true;
+      return false;
+    }
+    return elapsedSeconds >= kSeconds;
+  }
+
+private:
+  bool m_armed = false;
+};
