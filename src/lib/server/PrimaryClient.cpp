@@ -69,6 +69,11 @@ bool PrimaryClient::isLockedToScreen() const
   return m_screen->isLockedToScreen();
 }
 
+bool PrimaryClient::anyMouseButtonDown(uint32_t &buttonID) const
+{
+  return m_screen->anyMouseButtonDown(buttonID);
+}
+
 void *PrimaryClient::getEventTarget() const
 {
   return m_screen->getEventTarget();

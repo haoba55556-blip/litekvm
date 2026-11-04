@@ -433,6 +433,9 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
 
   LOG_INFO("switch from \"%s\" to \"%s\" at %d,%d", getName(m_active).c_str(), getName(dst).c_str(), x, y);
 
+  m_dragEdgeGrace.reset();
+  m_dragEdgeCrossAnnounced = false;
+
   // stop waiting to switch
   stopSwitch();
 
@@ -486,6 +489,14 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
 
     // enter new screen
     m_active->enter(x, y, m_seqNum, m_primaryClient->getToggleMask(), forScreensaver);
+
+    // The button-down happened on the machine we just left. Replay it so a
+    // file drag can continue and DoDragDrop sees the button still held.
+    if (m_active != m_primaryClient) {
+      uint32_t button = 0;
+      if (m_primaryClient->anyMouseButtonDown(button) && button != 0)
+        m_active->mouseDown(static_cast<ButtonID>(button));
+    }
 
     if (m_enableClipboard) {
       // send the clipboard data to new active screen
@@ -848,11 +859,15 @@ bool Server::isSwitchOkay(
     }
   }
 
-  // ignore if mouse is locked to screen and don't try to switch later
+  // Scroll-lock keeps the cursor here. A held mouse button also keeps it
+  // here, but only for DragEdgeGrace::kSeconds so the edge strip can take
+  // the OLE drag; after that the cursor crosses with the button still down.
   if (!preventSwitch && isLockedToScreen()) {
-    LOG_VERBOSE("locked to screen");
-    preventSwitch = true;
-    stopSwitch();
+    if (isLockedToScreenServer() || !dragEdgeGraceElapsed()) {
+      LOG_VERBOSE("locked to screen");
+      preventSwitch = true;
+      stopSwitch();
+    }
   }
 
   return !preventSwitch;
@@ -860,8 +875,25 @@ bool Server::isSwitchOkay(
 
 void Server::noSwitch(int32_t x, int32_t y)
 {
+  m_dragEdgeGrace.reset();
+  m_dragEdgeCrossAnnounced = false;
   armSwitchTwoTap(x, y);
   stopSwitchWait();
+}
+
+bool Server::dragEdgeGraceElapsed()
+{
+  if (!m_dragEdgeGrace.armed()) {
+    m_dragEdgeHold.reset();
+    m_dragEdgeHold.start();
+    LOG_INFO("edge drag: holding the screen switch so the edge strip can see the file");
+  }
+  const bool allow = m_dragEdgeGrace.allowSwitch(m_dragEdgeHold.getTime());
+  if (allow && !m_dragEdgeCrossAnnounced) {
+    m_dragEdgeCrossAnnounced = true;
+    LOG_INFO("edge drag: crossing with the button still held");
+  }
+  return allow;
 }
 
 void Server::stopSwitch()
