@@ -55,6 +55,15 @@ public:
   void beginDrag(const QStringList &paths);
   void noteDragLeft();
 
+  /// While a remote DoDragDrop is running, the strips must not be the drop
+  /// target or the window under the cursor. They are Qt::Tool and otherwise
+  /// hide the desktop (Progman/WorkerW) from WindowFromPoint.
+  void setPassThrough(bool on);
+  bool passThrough() const
+  {
+    return m_passThrough;
+  }
+
 Q_SIGNALS:
   void filesDragged(const QStringList &paths);
 
@@ -63,6 +72,7 @@ private:
   void destroyStrips();
 
   bool m_enabled = false;
+  bool m_passThrough = false;
   QList<QPointer<QWidget>> m_strips;
   litekvm::DragEdgeGate m_gate;
 };
