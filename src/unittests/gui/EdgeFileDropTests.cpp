@@ -30,7 +30,8 @@ int expectedStrips()
 
 } // namespace
 
-class EdgeFileDropTests : public QObject {
+class EdgeFileDropTests : public QObject
+{
   Q_OBJECT
 
 private Q_SLOTS:

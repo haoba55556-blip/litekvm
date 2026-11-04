@@ -468,6 +468,25 @@ private Q_SLOTS:
     QCOMPARE(fromUri.size(), 1);
     QVERIFY(fromUri.first().contains(QStringLiteral("clip.txt")));
 
+    // Explorer OLE DragEnter: text/uri-list is present so hasUrls() is true,
+    // but it still parses to no URLs, while CF_HDROP already has the path.
+    // capture() must not drop that path.
+    QMimeData delayed;
+    delayed.setData(QStringLiteral("text/uri-list"), QByteArray(" \n"));
+    delayed.setData(QStringLiteral("application/x-qt-windows-mime;value=\"CF_HDROP\""), ansi);
+    QVERIFY(delayed.hasUrls());
+    QVERIFY(delayed.urls().isEmpty());
+    const auto fromDrag = ClipboardFileBridge::capture(&delayed, QString());
+    QCOMPARE(fromDrag.paths.size(), 1);
+    QVERIFY(fromDrag.paths.first().contains(QStringLiteral("a.txt")));
+    QVERIFY(!ClipboardFileBridge::isLocalFileList(&delayed));
+
+    QMimeData mixed;
+    mixed.setUrls({QUrl::fromLocalFile(QStringLiteral("/tmp/keep.txt")), QUrl(QStringLiteral("https://example.com/x"))}
+    );
+    const auto mixedCapture = ClipboardFileBridge::capture(&mixed, QString());
+    QVERIFY(mixedCapture.paths.isEmpty());
+
     QImage image(4, 4, QImage::Format_ARGB32);
     image.fill(Qt::red);
     QMimeData bitmap;

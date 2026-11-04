@@ -17,11 +17,14 @@
 // the matching dataChanged() synchronously from inside that call.
 #include "ClipboardFileBridge.h"
 
+#include "common/Settings.h"
+
 #include <QClipboard>
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
@@ -273,7 +276,13 @@ ClipboardFileBridge::CapturedPayload ClipboardFileBridge::capture(const QMimeDat
     return out;
 
   const QStringList files = localPathsFromMime(mime);
-  const bool pureFileList = !files.isEmpty() && (!mime->hasUrls() || isLocalFileList(mime));
+  // Explorer OLE DragEnter often sets text/uri-list (so hasUrls() is true)
+  // before urls() has any entries, while CF_HDROP is already readable.
+  // isLocalFileList() rejects that empty list. A non-empty local path list
+  // from CF_HDROP / uri-list must still count. A non-empty URL list that is
+  // not all local files (a browser link, a UNC share) stays rejected.
+  const bool urlsBlockFiles = mime->hasUrls() && !mime->urls().isEmpty() && !isLocalFileList(mime);
+  const bool pureFileList = !files.isEmpty() && !urlsBlockFiles;
   if (pureFileList) {
     out.paths = files;
     out.intent = QStringLiteral("clipboard");
@@ -295,6 +304,25 @@ ClipboardFileBridge::CapturedPayload ClipboardFileBridge::capture(const QMimeDat
   out.paths = QStringList{QDir::toNativeSeparators(path)};
   out.intent = QStringLiteral("image");
   return out;
+}
+
+void ClipboardFileBridge::traceStage(const QString &stage, const QString &detail)
+{
+  const QString message = QStringLiteral("litekvm-drag %1 %2").arg(stage, detail);
+  qInfo().noquote() << message;
+  // Unit tests run offscreen and must not append to the developer's log file.
+  if (qEnvironmentVariable("QT_QPA_PLATFORM") == QLatin1String("offscreen"))
+    return;
+  const QString path = Settings::value(Settings::Log::File).toString();
+  if (path.isEmpty())
+    return;
+  QFile file(path);
+  if (!file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
+    return;
+  const QString line = QDateTime::currentDateTime().toString(Qt::ISODateWithMs) + QStringLiteral(" INFO: ") + message +
+                       QLatin1Char('\n');
+  file.write(line.toUtf8());
+  file.flush();
 }
 
 QStringList ClipboardFileBridge::normalizedPaths(const QStringList &localPaths)

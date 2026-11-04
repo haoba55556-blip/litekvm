@@ -7,6 +7,8 @@
 // Wire format: ClipFileChunk.h
 #include "ClipFileTransfer.h"
 
+#include "ClipboardFileBridge.h"
+
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -365,15 +367,25 @@ void ClipFileTransfer::onOfferTimeout()
 
 void ClipFileTransfer::sendLocalPaths(const QStringList &paths)
 {
+  const QString intent = m_outgoingIntent.isEmpty() ? QStringLiteral("clipboard") : m_outgoingIntent;
   if (m_state != State::Idle) {
+    ClipboardFileBridge::traceStage(
+        QStringLiteral("CLIP_OFFER"), QStringLiteral("intent=%1 skipped state=%2").arg(intent, toString(m_state))
+    );
     failed(Error::Protocol, QStringLiteral("sendLocalPaths() while %1").arg(toString(m_state)));
     return;
   }
   if (!m_channel) {
+    ClipboardFileBridge::traceStage(
+        QStringLiteral("CLIP_OFFER"), QStringLiteral("intent=%1 skipped no-channel").arg(intent)
+    );
     failed(Error::Io, QStringLiteral("no channel"));
     return;
   }
   if (paths.isEmpty()) {
+    ClipboardFileBridge::traceStage(
+        QStringLiteral("CLIP_OFFER"), QStringLiteral("intent=%1 skipped no-paths").arg(intent)
+    );
     failed(Error::Protocol, QStringLiteral("no paths to send"));
     return;
   }
@@ -412,7 +424,15 @@ void ClipFileTransfer::sendLocalPaths(const QStringList &paths)
   offer.insert(QStringLiteral("total_bytes"), double(m_totalBytes));
   offer.insert(QStringLiteral("file_count"), entries.size());
   offer.insert(QStringLiteral("entries"), entries);
-  offer.insert(QStringLiteral("intent"), m_outgoingIntent.isEmpty() ? QStringLiteral("clipboard") : m_outgoingIntent);
+  offer.insert(QStringLiteral("intent"), intent);
+
+  ClipboardFileBridge::traceStage(
+      QStringLiteral("CLIP_OFFER"), QStringLiteral("intent=%1 files=%2 bytes=%3 id=%4")
+                                        .arg(intent)
+                                        .arg(entries.size())
+                                        .arg(m_totalBytes)
+                                        .arg(m_transferId)
+  );
 
   m_state = State::Offering;
   sendJson(offer);
