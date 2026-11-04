@@ -76,6 +76,10 @@ protected:
 
   void dragEnterEvent(QDragEnterEvent *event) override
   {
+    if (m_owner != nullptr && m_owner->passThrough()) {
+      event->ignore();
+      return;
+    }
     const DragRead read = readDrag(event->mimeData());
     litekvm::ClipboardFileBridge::traceStage(QStringLiteral("DragEnter"), read.hint);
     if (m_owner == nullptr) {
@@ -99,6 +103,10 @@ protected:
 
   void dragMoveEvent(QDragMoveEvent *event) override
   {
+    if (m_owner != nullptr && m_owner->passThrough()) {
+      event->ignore();
+      return;
+    }
     event->acceptProposedAction();
     if (m_owner == nullptr)
       return;
@@ -116,6 +124,10 @@ protected:
 
   void dropEvent(QDropEvent *event) override
   {
+    if (m_owner != nullptr && m_owner->passThrough()) {
+      event->ignore();
+      return;
+    }
     const QStringList paths = pathsFrom(event->mimeData());
     if (paths.isEmpty() || m_owner == nullptr) {
       event->ignore();
@@ -214,6 +226,27 @@ void EdgeFileDrop::beginDrag(const QStringList &paths)
 void EdgeFileDrop::noteDragLeft()
 {
   m_gate.onLeave();
+}
+
+void EdgeFileDrop::setPassThrough(bool on)
+{
+  m_passThrough = on;
+  for (const auto &strip : m_strips) {
+    if (!strip)
+      continue;
+    strip->setAcceptDrops(!on);
+#ifdef Q_OS_WIN
+    const HWND hwnd = reinterpret_cast<HWND>(strip->winId());
+    if (hwnd == nullptr)
+      continue;
+    LONG_PTR extra = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+    if (on)
+      extra |= WS_EX_TRANSPARENT;
+    else
+      extra &= ~LONG_PTR(WS_EX_TRANSPARENT);
+    SetWindowLongPtr(hwnd, GWL_EXSTYLE, extra);
+#endif
+  }
 }
 
 QWidget *EdgeFileDrop::dragSource() const

@@ -1603,29 +1603,67 @@ QString dropActionName(Qt::DropAction action)
 }
 
 #if defined(Q_OS_WIN)
+QString desktopDirectory()
+{
+  PWSTR wide = nullptr;
+  if (FAILED(SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &wide)) || wide == nullptr)
+    return {};
+  const QString path = QDir::toNativeSeparators(QString::fromWCharArray(wide));
+  CoTaskMemFree(wide);
+  return path;
+}
+
+bool isOwnQtWindow(HWND hwnd)
+{
+  DWORD pid = 0;
+  GetWindowThreadProcessId(hwnd, &pid);
+  if (pid != GetCurrentProcessId())
+    return false;
+  wchar_t cls[160] = {};
+  GetClassNameW(hwnd, cls, 160);
+  return wcsstr(cls, L"Qt") != nullptr && wcsstr(cls, L"QWindow") != nullptr;
+}
+
+// Topmost Qt::Tool strips sit above the desktop. WindowFromPoint hits those
+// and never sees Progman/WorkerW. Walk the z-order and skip our own tools.
+HWND shellWindowAt(POINT pt, QString *windowClass)
+{
+  HWND hwnd = GetTopWindow(nullptr);
+  while (hwnd != nullptr) {
+    if (IsWindowVisible(hwnd) && !IsIconic(hwnd) && !isOwnQtWindow(hwnd)) {
+      RECT rect{};
+      if (GetWindowRect(hwnd, &rect) && PtInRect(&rect, pt)) {
+        wchar_t cls[160] = {};
+        GetClassNameW(hwnd, cls, 160);
+        const bool shell = wcscmp(cls, L"Progman") == 0 || wcscmp(cls, L"WorkerW") == 0 ||
+                           wcscmp(cls, L"CabinetWClass") == 0 || wcscmp(cls, L"ExploreWClass") == 0;
+        if (shell) {
+          if (windowClass != nullptr)
+            *windowClass = QString::fromWCharArray(cls);
+          return hwnd;
+        }
+      }
+    }
+    hwnd = GetWindow(hwnd, GW_HWNDNEXT);
+  }
+  if (windowClass != nullptr)
+    windowClass->clear();
+  return nullptr;
+}
+
 QString shellFolderAtCursor(QString *windowClass)
 {
   POINT pt{};
   if (!GetCursorPos(&pt))
     return {};
-  HWND hwnd = WindowFromPoint(pt);
-  HWND root = GetAncestor(hwnd, GA_ROOT);
+  const HWND root = shellWindowAt(pt, windowClass);
   if (root == nullptr)
-    root = hwnd;
-  wchar_t cls[128] = {};
-  GetClassNameW(root, cls, 128);
-  if (windowClass != nullptr)
-    *windowClass = QString::fromWCharArray(cls);
-
+    return {};
+  wchar_t cls[160] = {};
+  GetClassNameW(root, cls, 160);
   const bool desktop = wcscmp(cls, L"Progman") == 0 || wcscmp(cls, L"WorkerW") == 0;
-  if (desktop) {
-    PWSTR wide = nullptr;
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &wide)) || wide == nullptr)
-      return {};
-    const QString path = QString::fromWCharArray(wide);
-    CoTaskMemFree(wide);
-    return path;
-  }
+  if (desktop)
+    return desktopDirectory();
 
   IShellWindows *windows = nullptr;
   if (FAILED(CoCreateInstance(CLSID_ShellWindows, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&windows))) || windows == nullptr)
@@ -1872,9 +1910,20 @@ private:
   QStringList m_paths;
 };
 
+QString placeFilesInFolder(const QStringList &paths, const QString &directory);
+
 class FileDropSource final : public IDropSource
 {
 public:
+  explicit FileDropSource(const QStringList &paths) : m_paths(paths), m_started(GetTickCount64())
+  {
+  }
+
+  bool committed() const
+  {
+    return m_committed;
+  }
+
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void **out) override
   {
     if (out == nullptr)
@@ -1898,21 +1947,55 @@ public:
       delete this;
     return left;
   }
-  HRESULT STDMETHODCALLTYPE QueryContinueDrag(BOOL escape, DWORD keys) override
+  HRESULT STDMETHODCALLTYPE QueryContinueDrag(BOOL escape, DWORD) override
   {
-    if (escape)
-      return DRAGDROP_S_CANCEL;
-    if ((keys & MK_LBUTTON) == 0)
-      return DRAGDROP_S_DROP;
-    return S_OK;
+    // `keys` stays stale when the button-up is injected by the core, so the
+    // drag loop never ends. The async state is the one SendInput updates.
+    // Cancel instead of DROP: the shell's desktop Drop() hangs and never
+    // writes the file. We copy it ourselves.
+    const bool timeout = GetTickCount64() - m_started > 8000;
+    const bool released = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0;
+    const bool heldLongEnough = GetTickCount64() - m_started > 200;
+    if (!escape && !timeout && !(released && heldLongEnough))
+      return S_OK;
+    const char *reason = escape ? "escape" : (timeout ? "timeout" : "release");
+    commitFiles(reason);
+    return DRAGDROP_S_CANCEL;
   }
   HRESULT STDMETHODCALLTYPE GiveFeedback(DWORD) override
   {
     return DRAGDROP_S_USEDEFAULTCURSORS;
   }
 
+  void commitFiles(const char *reason)
+  {
+    if (m_committed)
+      return;
+    m_committed = true;
+    QString windowClass;
+    QString folder = shellFolderAtCursor(&windowClass);
+    if (folder.isEmpty()) {
+      folder = desktopDirectory();
+      if (windowClass.isEmpty())
+        windowClass = QStringLiteral("desktop-fallback");
+    }
+    const QString landed = folder.isEmpty() ? QString() : placeFilesInFolder(m_paths, folder);
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("drop-file"),
+        QStringLiteral("class=%1 dir=%2 landed=%3 reason=%4")
+            .arg(
+                windowClass.isEmpty() ? QStringLiteral("-") : windowClass,
+                folder.isEmpty() ? QStringLiteral("-") : folder, landed.isEmpty() ? QStringLiteral("-") : landed,
+                QString::fromLatin1(reason)
+            )
+    );
+  }
+
 private:
   ULONG m_refs = 1;
+  bool m_committed = false;
+  ULONGLONG m_started = 0;
+  QStringList m_paths;
 };
 
 QString placeFilesInFolder(const QStringList &paths, const QString &directory)
@@ -1925,13 +2008,15 @@ QString placeFilesInFolder(const QStringList &paths, const QString &directory)
     const QFileInfo info(path);
     QString dest = dir.filePath(info.fileName());
     if (QFileInfo::exists(dest) && QFileInfo(dest).size() == info.size()) {
-      landed.append(dest);
+      landed.append(QDir::toNativeSeparators(QFileInfo(dest).absoluteFilePath()));
       continue;
     }
-    if (QFileInfo::exists(dest))
-      dest = dir.filePath(info.completeBaseName() + QStringLiteral("-litekvm.") + info.suffix());
-    if (QFile::copy(path, dest))
-      landed.append(dest);
+    if (QFileInfo::exists(dest)) {
+      const QString suffix = info.suffix().isEmpty() ? QString() : QStringLiteral(".") + info.suffix();
+      dest = dir.filePath(info.completeBaseName() + QStringLiteral("-litekvm") + suffix);
+    }
+    if (QFile::copy(path, dest) && QFileInfo::exists(dest))
+      landed.append(QDir::toNativeSeparators(QFileInfo(dest).absoluteFilePath()));
   }
   return landed.join(QLatin1Char(';'));
 }
@@ -1962,6 +2047,14 @@ void MainWindow::startRemoteDrag(const QStringList &paths)
     litekvm::ClipboardFileBridge::traceStage(
         QStringLiteral("DoDragDrop"), QStringLiteral("result=none reason=button-up paths=%1").arg(paths.size())
     );
+#if defined(Q_OS_WIN)
+    if (m_edgeDrop != nullptr)
+      m_edgeDrop->setPassThrough(true);
+    FileDropSource fallback(paths);
+    fallback.commitFiles("button-up");
+    if (m_edgeDrop != nullptr)
+      m_edgeDrop->setPassThrough(false);
+#endif
     return;
   }
 
@@ -1971,32 +2064,25 @@ void MainWindow::startRemoteDrag(const QStringList &paths)
   );
 
 #if defined(Q_OS_WIN)
+  if (m_edgeDrop != nullptr)
+    m_edgeDrop->setPassThrough(true);
   auto *data = new FileDropObject(paths);
-  auto *source = new FileDropSource;
+  auto *source = new FileDropSource(paths);
   DWORD effect = DROPEFFECT_NONE;
   const HRESULT hr = DoDragDrop(data, source, DROPEFFECT_COPY, &effect);
+  if (!source->committed())
+    source->commitFiles("after-return");
   data->Release();
   source->Release();
-  const bool copied = hr == DRAGDROP_S_DROP && (effect & DROPEFFECT_COPY) != 0;
+  if (m_edgeDrop != nullptr)
+    m_edgeDrop->setPassThrough(false);
   const bool cancelled = hr == DRAGDROP_S_CANCEL;
   litekvm::ClipboardFileBridge::traceStage(
-      QStringLiteral("DoDragDrop"), QStringLiteral("result=%1 hr=0x%2 effect=0x%3")
-                                        .arg(copied ? QStringLiteral("copy") : QStringLiteral("none"))
+      QStringLiteral("DoDragDrop"), QStringLiteral("result=%1 hr=0x%2 effect=0x%3 reason=%4")
+                                        .arg(cancelled ? QStringLiteral("cancel") : QStringLiteral("drop"))
                                         .arg(uint32_t(hr), 8, 16, QLatin1Char('0'))
                                         .arg(uint32_t(effect), 0, 16)
-  );
-  if (cancelled)
-    litekvm::ClipboardFileBridge::traceStage(QStringLiteral("DoDragDrop"), QStringLiteral("result=none reason=cancel"));
-
-  QString windowClass;
-  const QString folder = shellFolderAtCursor(&windowClass);
-  const QString landed = folder.isEmpty() ? QString() : placeFilesInFolder(paths, folder);
-  litekvm::ClipboardFileBridge::traceStage(
-      QStringLiteral("drop-file"), QStringLiteral("class=%1 dir=%2 landed=%3")
-                                       .arg(
-                                           windowClass, folder.isEmpty() ? QStringLiteral("-") : folder,
-                                           landed.isEmpty() ? QStringLiteral("-") : landed
-                                       )
+                                        .arg(cancelled ? QStringLiteral("cancel") : QStringLiteral("drop"))
   );
 #else
   auto *sourceWidget = new QWidget(nullptr, Qt::Tool | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
