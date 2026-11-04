@@ -313,14 +313,20 @@ void ClipboardFileBridge::traceStage(const QString &stage, const QString &detail
   // Unit tests run offscreen and must not append to the developer's log file.
   if (qEnvironmentVariable("QT_QPA_PLATFORM") == QLatin1String("offscreen"))
     return;
-  const QString path = Settings::value(Settings::Log::File).toString();
-  if (path.isEmpty())
+  // Same file the core writes when "log to file" is on (Settings log/file).
+  // Match the core line shape so a search of desktop-core.log finds it.
+  const QString path = QFileInfo(Settings::value(Settings::Log::File).toString()).absoluteFilePath();
+  if (path.isEmpty()) {
+    qWarning().noquote() << "litekvm-drag log skipped, no log file configured";
     return;
+  }
   QFile file(path);
-  if (!file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
+  if (!file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+    qWarning().noquote() << "litekvm-drag log failed" << path << file.errorString();
     return;
-  const QString line = QDateTime::currentDateTime().toString(Qt::ISODateWithMs) + QStringLiteral(" INFO: ") + message +
-                       QLatin1Char('\n');
+  }
+  const QString line =
+      QStringLiteral("[%1] INFO: %2\n").arg(QDateTime::currentDateTime().toString(Qt::ISODateWithMs), message);
   file.write(line.toUtf8());
   file.flush();
 }
