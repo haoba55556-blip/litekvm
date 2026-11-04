@@ -46,19 +46,35 @@ public:
 protected:
   void dragEnterEvent(QDragEnterEvent *event) override
   {
-    const QStringList paths = pathsFrom(event->mimeData());
-    if (paths.isEmpty() || m_owner == nullptr) {
+    const DragRead read = readDrag(event->mimeData());
+    litekvm::ClipboardFileBridge::traceStage(QStringLiteral("DragEnter"), read.hint);
+    if (m_owner == nullptr) {
       event->ignore();
       return;
     }
-    event->acceptProposedAction();
-    // Start now. dragLeave follows within milliseconds when the screen switches.
-    m_owner->beginDrag(paths);
+    if (!read.paths.isEmpty()) {
+      event->acceptProposedAction();
+      // Start now. dragLeave follows within milliseconds when the screen switches.
+      m_owner->beginDrag(read.paths);
+      return;
+    }
+    // Keep the drop target so a later DragMove can read CF_HDROP. Ignoring
+    // here is what made a 7s edge hold produce no transfer.
+    if (read.delayed) {
+      event->acceptProposedAction();
+      return;
+    }
+    event->ignore();
   }
 
   void dragMoveEvent(QDragMoveEvent *event) override
   {
     event->acceptProposedAction();
+    if (m_owner == nullptr)
+      return;
+    const QStringList paths = pathsFrom(event->mimeData());
+    if (!paths.isEmpty())
+      m_owner->beginDrag(paths);
   }
 
   void dragLeaveEvent(QDragLeaveEvent *event) override
@@ -80,6 +96,43 @@ protected:
   }
 
 private:
+  struct DragRead
+  {
+    QStringList paths;
+    bool delayed = false;
+    QString hint;
+  };
+
+  static DragRead readDrag(const QMimeData *mime)
+  {
+    DragRead out;
+    if (mime == nullptr) {
+      out.hint = QStringLiteral("mime=null");
+      return out;
+    }
+    out.paths = pathsFrom(mime);
+    QStringList formats;
+    for (const QString &format : mime->formats()) {
+      if (format.contains(QLatin1String("CF_HDROP"), Qt::CaseInsensitive) ||
+          format.contains(QLatin1String("FileName"), Qt::CaseInsensitive) ||
+          format.contains(QLatin1String("uri-list"), Qt::CaseInsensitive)) {
+        formats.append(format);
+        if (out.paths.isEmpty())
+          out.delayed = true;
+      }
+    }
+    // hasUrls() is true for an empty text/uri-list while OLE is still rendering.
+    if (out.paths.isEmpty() && mime->hasUrls() && mime->urls().isEmpty())
+      out.delayed = true;
+    out.hint = QStringLiteral("hasUrls=%1 urls=%2 paths=%3 delayed=%4 formats=%5")
+                   .arg(mime->hasUrls() ? 1 : 0)
+                   .arg(mime->urls().size())
+                   .arg(out.paths.size())
+                   .arg(out.delayed ? 1 : 0)
+                   .arg(formats.join(QLatin1Char('|')));
+    return out;
+  }
+
   static QStringList pathsFrom(const QMimeData *mime)
   {
     const auto captured =
@@ -119,7 +172,12 @@ void EdgeFileDrop::setEnabled(bool on)
 
 void EdgeFileDrop::beginDrag(const QStringList &paths)
 {
-  if (m_gate.onEnter(paths, QDateTime::currentMSecsSinceEpoch()))
+  const bool start = m_gate.onEnter(paths, QDateTime::currentMSecsSinceEpoch());
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("beginDrag"),
+      QStringLiteral("paths=%1 start=%2 first=%3").arg(paths.size()).arg(start ? "yes" : "no").arg(paths.value(0))
+  );
+  if (start)
     Q_EMIT filesDragged(paths);
 }
 
