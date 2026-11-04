@@ -10,6 +10,7 @@
 #include "common/ExitCodes.h"
 #include "gui/ipc/CoreIpcClient.h"
 #include "gui/ipc/DaemonIpcClient.h"
+#include "litekvm/ElevatedCore.h"
 
 #if defined(Q_OS_MACOS)
 #include "OSXHelpers.h"
@@ -269,10 +270,18 @@ void CoreProcess::startProcessFromDaemon()
   }
 }
 
-void CoreProcess::stopForegroundProcess() const
+void CoreProcess::stopForegroundProcess()
 {
   if (m_processState != ProcessState::Stopping) {
     qCritical("not stopping core desktop process, unexpected process state");
+    return;
+  }
+
+  if (m_elevatedLaunch) {
+    qInfo("stopping elevated core scheduled task");
+    litekvm::ElevatedCore::endRunningTask();
+    m_elevatedLaunch = false;
+    setProcessState(ProcessState::Stopped);
     return;
   }
 
@@ -377,7 +386,10 @@ void CoreProcess::start(std::optional<ProcessMode> processModeOption)
 
   setConnectionState(ConnectionState::Connecting);
 
-  if (processMode == ProcessMode::Desktop) {
+  m_elevatedLaunch =
+      processMode == ProcessMode::Desktop && litekvm::ElevatedCore::isEnabled() && litekvm::ElevatedCore::supported();
+
+  if (processMode == ProcessMode::Desktop && !m_elevatedLaunch) {
     m_process = new QProcess(this);
     connect(m_process, &QProcess::finished, this, &CoreProcess::onProcessFinished, Qt::UniqueConnection);
     connect(
@@ -450,7 +462,19 @@ void CoreProcess::start(std::optional<ProcessMode> processModeOption)
       static_cast<Qt::ConnectionType>(Qt::SingleShotConnection | Qt::QueuedConnection)
   );
 
-  if (processMode == ProcessMode::Desktop) {
+  if (m_elevatedLaunch) {
+    QString errorText;
+    if (litekvm::ElevatedCore::launch(m_appPath, args, &errorText)) {
+      qInfo().noquote() << "started core via highest-privileges scheduled task";
+      setProcessState(ProcessState::Started);
+    } else {
+      qWarning().noquote() << "elevated core launch failed:" << errorText;
+      m_elevatedLaunch = false;
+      setProcessState(ProcessState::Stopped);
+      setConnectionState(ConnectionState::Disconnected);
+      Q_EMIT error(Error::StartFailed);
+    }
+  } else if (processMode == ProcessMode::Desktop) {
     startForegroundProcess(args);
   } else if (processMode == ProcessMode::Service) {
     startProcessFromDaemon();
@@ -606,6 +630,10 @@ void CoreProcess::onCoreIpcMessageReceived(const QString &command, const QString
     Q_EMIT peerFingerprint(args);
   } else if (command == "missingKeyboardLayouts") {
     Q_EMIT missingKeyboardLayouts(args);
+  } else if (command == "peerSocket") {
+    const int bar = args.indexOf(QLatin1Char('|'));
+    if (bar > 0)
+      Q_EMIT peerSocketAddress(args.left(bar), args.mid(bar + 1));
   }
 }
 

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // ClipFileService tests: two real services over loopback TCP — paired-device
 // handshake, one real chunked file transfer, rejection / busy / handshake
 // timeout / mid-transfer disconnect cleanup.
@@ -31,7 +31,8 @@ using namespace litekvm;
 namespace {
 
 /// An isolated node: its own identity file and its own trust store.
-struct Node {
+struct Node
+{
   QTemporaryDir dir;
   std::optional<DeviceIdentity> identity;
   std::unique_ptr<TrustStore> store;
@@ -50,8 +51,9 @@ struct Node {
   {
     TrustEntry e;
     e.deviceId = identity->deviceId();
-    e.pubkey = QByteArray(reinterpret_cast<const char *>(identity->publicKey().data()),
-                          qsizetype(identity->publicKey().size()));
+    e.pubkey = QByteArray(
+        reinterpret_cast<const char *>(identity->publicKey().data()), qsizetype(identity->publicKey().size())
+    );
     e.name = identity->name();
     e.platform = QStringLiteral("win");
     return e;
@@ -118,7 +120,8 @@ QByteArray sha1Hex(const QByteArray &data)
 
 } // namespace
 
-class ClipFileServiceTests : public QObject {
+class ClipFileServiceTests : public QObject
+{
   Q_OBJECT
 
 private Q_SLOTS:
@@ -130,9 +133,11 @@ private Q_SLOTS:
     QCOMPARE(ClipFileService::defaultPort(), quint16(25903));
     QCOMPARE(ClipFileService::protocolVersion(), QStringLiteral("v1"));
 
-    const QJsonObject hello{{QStringLiteral("type"), QStringLiteral("CALP_HELLO")},
-                            {QStringLiteral("proto"), QStringLiteral("v1")},
-                            {QStringLiteral("device_id"), QStringLiteral("0123456789abcdef")}};
+    const QJsonObject hello{
+        {QStringLiteral("type"), QStringLiteral("CALP_HELLO")},
+        {QStringLiteral("proto"), QStringLiteral("v1")},
+        {QStringLiteral("device_id"), QStringLiteral("0123456789abcdef")}
+    };
     const QByteArray frame = ClipFileService::encodeFrame(hello);
     QVERIFY(!frame.isEmpty());
 
@@ -151,8 +156,10 @@ private Q_SLOTS:
     QVERIFY(!ClipFileService::decodeFrame(QByteArray()).has_value());
 
     // a payload above the 64 KiB cap is refused, never truncated into a frame
-    const QJsonObject oversized{{QStringLiteral("type"), QStringLiteral("CALP_HELLO")},
-                                {QStringLiteral("blob"), QString(70000, QLatin1Char('a'))}};
+    const QJsonObject oversized{
+        {QStringLiteral("type"), QStringLiteral("CALP_HELLO")},
+        {QStringLiteral("blob"), QString(70000, QLatin1Char('a'))}
+    };
     QVERIFY(ClipFileService::encodeFrame(oversized).isEmpty());
   }
 
@@ -189,33 +196,42 @@ private Q_SLOTS:
     QCOMPARE(int(server.role()), int(ClipFileService::Role::None));
     QVERIFY(!server.isListening());
 
+    QString serverName;
+    QString clientName;
+    bool serverHadPeer = false;
+    bool clientHadPeer = false;
+    // Read identity inside the signal. A tiny loopback file can finish and
+    // tear the session down before this function resumes, which clears
+    // peerDeviceId().
     connect(&server, &ClipFileService::peerConnected, [&](const QString &id) {
       serverPeer = id;
+      serverName = server.peerName();
+      serverHadPeer = server.hasPeer();
       serverUp.release();
     });
     connect(&client, &ClipFileService::peerConnected, [&](const QString &id) {
       clientPeer = id;
+      clientName = client.peerName();
+      clientHadPeer = client.hasPeer();
       clientUp.release();
     });
     connect(&server, &ClipFileService::peerDisconnected, [&] { serverBye.release(); });
     connect(&client, &ClipFileService::peerDisconnected, [&] { clientBye.release(); });
-    connect(&server, &ClipFileService::transferCompleted,
-            [&](const QStringList &paths, const QString &) {
-              landed = paths;
-              serverDone.release();
-            });
-    connect(&client, &ClipFileService::transferCompleted,
-            [&](const QStringList &, const QString &) { clientDone.release(); });
-    connect(&server, &ClipFileService::transferFailed,
-            [&](ClipFileTransfer::Error, const QString &detail) {
-              log << QStringLiteral("server transferFailed: ") + detail;
-              serverFail.release();
-            });
-    connect(&client, &ClipFileService::transferFailed,
-            [&](ClipFileTransfer::Error, const QString &detail) {
-              log << QStringLiteral("client transferFailed: ") + detail;
-              clientFail.release();
-            });
+    connect(&server, &ClipFileService::transferCompleted, [&](const QStringList &paths, const QString &) {
+      landed = paths;
+      serverDone.release();
+    });
+    connect(&client, &ClipFileService::transferCompleted, [&](const QStringList &, const QString &) {
+      clientDone.release();
+    });
+    connect(&server, &ClipFileService::transferFailed, [&](ClipFileTransfer::Error, const QString &detail) {
+      log << QStringLiteral("server transferFailed: ") + detail;
+      serverFail.release();
+    });
+    connect(&client, &ClipFileService::transferFailed, [&](ClipFileTransfer::Error, const QString &detail) {
+      log << QStringLiteral("client transferFailed: ") + detail;
+      clientFail.release();
+    });
     connect(&server, &ClipFileService::errorOccurred, [&](const QString &message) {
       log << QStringLiteral("server errorOccurred: ") + message;
       serverFail.release();
@@ -240,10 +256,10 @@ private Q_SLOTS:
     QVERIFY2(spin(clientUp, log), qPrintable(log.join(QStringLiteral(" | "))));
     QCOMPARE(serverPeer, clientNode.identity->deviceId());
     QCOMPARE(clientPeer, serverNode.identity->deviceId());
-    QCOMPARE(server.peerDeviceId(), clientNode.identity->deviceId());
-    QCOMPARE(server.peerName(), clientNode.identity->name());
-    QVERIFY(server.hasPeer());
-    QVERIFY(client.hasPeer());
+    QCOMPARE(serverName, clientNode.identity->name());
+    QCOMPARE(clientName, serverNode.identity->name());
+    QVERIFY(serverHadPeer);
+    QVERIFY(clientHadPeer);
 
     // --- one real transfer
     QVERIFY2(spin(serverDone, log), qPrintable(log.join(QStringLiteral(" | "))));
@@ -309,13 +325,13 @@ private Q_SLOTS:
     });
     connect(&client, &ClipFileService::peerConnected, [&](const QString &) { clientUp.release(); });
     connect(&server, &ClipFileService::peerConnected, [&](const QString &) { serverUp.release(); });
-    connect(&server, &ClipFileService::transferCompleted,
-            [&](const QStringList &paths, const QString &) {
-              landed = paths;
-              serverDone.release();
-            });
-    connect(&client, &ClipFileService::transferCompleted,
-            [&](const QStringList &, const QString &) { clientDone.release(); });
+    connect(&server, &ClipFileService::transferCompleted, [&](const QStringList &paths, const QString &) {
+      landed = paths;
+      serverDone.release();
+    });
+    connect(&client, &ClipFileService::transferCompleted, [&](const QStringList &, const QString &) {
+      clientDone.release();
+    });
 
     if (!server.listen(ClipFileService::defaultPort()))
       QVERIFY(server.listen(0));
@@ -379,20 +395,17 @@ private Q_SLOTS:
     server.setIncomingDirectory(incoming.path());
     server.setAutoAccept(false); // hold the offer: the session stays busy
 
-    connect(&server, &ClipFileService::offerReceived,
-            [&](const ClipFileOffer &) { offerSeen.release(); });
-    connect(&server, &ClipFileService::transferCompleted,
-            [&](const QStringList &paths, const QString &) {
-              landed = paths;
-              serverDone.release();
-            });
+    connect(&server, &ClipFileService::offerReceived, [&](const ClipFileOffer &) { offerSeen.release(); });
+    connect(&server, &ClipFileService::transferCompleted, [&](const QStringList &paths, const QString &) {
+      landed = paths;
+      serverDone.release();
+    });
     connect(&server, &ClipFileService::errorOccurred, [&](const QString &message) {
       log << QStringLiteral("server: ") + message;
     });
-    connect(&server, &ClipFileService::transferFailed,
-            [&](ClipFileTransfer::Error, const QString &detail) {
-              log << QStringLiteral("server transferFailed: ") + detail;
-            });
+    connect(&server, &ClipFileService::transferFailed, [&](ClipFileTransfer::Error, const QString &detail) {
+      log << QStringLiteral("server transferFailed: ") + detail;
+    });
     connect(&other, &ClipFileService::errorOccurred, [&](const QString &message) {
       otherLog << message;
       otherErr.release();
@@ -469,18 +482,17 @@ private Q_SLOTS:
       // landed yet — the receiver is definitely left with a ".litekvm-part".
       client.stop();
     });
-    connect(&server, &ClipFileService::transferCancelled,
-            [&](const QString &) { cancelled.release(); });
-    connect(&server, &ClipFileService::transferCompleted,
-            [&](const QStringList &, const QString &) { serverDone.release(); });
+    connect(&server, &ClipFileService::transferCancelled, [&](const QString &) { cancelled.release(); });
+    connect(&server, &ClipFileService::transferCompleted, [&](const QStringList &, const QString &) {
+      serverDone.release();
+    });
     connect(&server, &ClipFileService::peerDisconnected, [&] { serverBye.release(); });
     connect(&server, &ClipFileService::errorOccurred, [&](const QString &message) {
       log << QStringLiteral("server errorOccurred: ") + message;
     });
-    connect(&server, &ClipFileService::transferFailed,
-            [&](ClipFileTransfer::Error, const QString &detail) {
-              log << QStringLiteral("server transferFailed: ") + detail;
-            });
+    connect(&server, &ClipFileService::transferFailed, [&](ClipFileTransfer::Error, const QString &detail) {
+      log << QStringLiteral("server transferFailed: ") + detail;
+    });
 
     if (!server.listen(ClipFileService::defaultPort()))
       QVERIFY(server.listen(0));
@@ -489,11 +501,11 @@ private Q_SLOTS:
 
     // the peer hung up mid-flight: the session must be torn down
     QVERIFY2(spin(serverBye, log), qPrintable(log.join(QStringLiteral(" | "))));
-    QVERIFY(sawPartFile);                          // we caught it mid-write
+    QVERIFY(sawPartFile); // we caught it mid-write
     QVERIFY2(cancelled.available() >= 1, "the teardown must surface transferCancelled");
-    QCOMPARE(serverDone.available(), 0);           // and it never completed
-    QCOMPARE(countPartFiles(incoming.path()), 0);  // half-written temp file removed
-    QVERIFY(QDir(incoming.path()).entryList(QDir::Files).isEmpty()); // and nothing else landed
+    QCOMPARE(serverDone.available(), 0);                                  // and it never completed
+    QCOMPARE(countPartFiles(incoming.path()), 0);                         // half-written temp file removed
+    QVERIFY(QDir(incoming.path()).entryList(QDir::Files).isEmpty());      // and nothing else landed
     QVERIFY2(log.isEmpty(), qPrintable(log.join(QStringLiteral(" | ")))); // a hang-up is not an error
     QVERIFY(!server.hasPeer());
     QVERIFY(server.transfer() == nullptr);

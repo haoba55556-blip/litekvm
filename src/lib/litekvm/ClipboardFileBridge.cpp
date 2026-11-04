@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM cross-machine file clipboard — the local clipboard end.
 //
 // Spec: docs/plans/2026-08-25-litekvm-mvp.md Phase 4 Task 4.3
@@ -18,11 +19,17 @@
 
 #include <QClipboard>
 #include <QCoreApplication>
+#include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
+#include <QFileInfo>
 #include <QGuiApplication>
+#include <QImage>
 #include <QMimeData>
+#include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
+#include <QtEndian>
 
 #include <algorithm>
 #include <memory>
@@ -49,13 +56,51 @@ bool isTrulyLocalFile(const QUrl &url)
   return host.isEmpty() || host.compare(QLatin1String("localhost"), Qt::CaseInsensitive) == 0;
 }
 
+bool isImageSuffix(const QString &path)
+{
+  const QString ext = QFileInfo(path).suffix().toLower();
+  return ext == QLatin1String("png") || ext == QLatin1String("jpg") || ext == QLatin1String("jpeg") ||
+         ext == QLatin1String("bmp") || ext == QLatin1String("gif") || ext == QLatin1String("webp") ||
+         ext == QLatin1String("tif") || ext == QLatin1String("tiff");
+}
+
+QStringList pathsFromUriList(const QByteArray &payload)
+{
+  QStringList paths;
+  const QList<QByteArray> lines = payload.split('\n');
+  for (QByteArray line : lines) {
+    line = line.trimmed();
+    if (line.isEmpty() || line.startsWith('#'))
+      continue;
+    const QUrl url = QUrl::fromEncoded(line);
+    const QString path = ClipboardFileBridge::toLocalFilePath(url);
+    if (!path.isEmpty())
+      paths.append(path);
+  }
+  paths.removeDuplicates();
+  return paths;
+}
+
+bool mimeLooksDelayed(const QMimeData *mime)
+{
+  if (mime == nullptr)
+    return true;
+  const QStringList formats = mime->formats();
+  for (const QString &format : formats) {
+    if (format.contains(QLatin1String("CF_HDROP"), Qt::CaseInsensitive) ||
+        format.contains(QLatin1String("FileName"), Qt::CaseInsensitive) ||
+        format.contains(QLatin1String("uri-list"), Qt::CaseInsensitive) ||
+        format.startsWith(QLatin1String("image/"), Qt::CaseInsensitive))
+      return true;
+  }
+  return false;
+}
+
 } // namespace
 
 // ------------------------------------------------------------------ ctor
 
-ClipboardFileBridge::ClipboardFileBridge(QObject *parent)
-  : QObject(parent)
-  , m_guardTimer(new QTimer(this))
+ClipboardFileBridge::ClipboardFileBridge(QObject *parent) : QObject(parent), m_guardTimer(new QTimer(this))
 {
   m_guardTimer->setSingleShot(true);
   connect(m_guardTimer, &QTimer::timeout, this, &ClipboardFileBridge::onSelfWriteGuardExpired);
@@ -135,18 +180,121 @@ QUrl ClipboardFileBridge::toFileUrl(const QString &localPath)
 QStringList ClipboardFileBridge::localPathsFromMime(const QMimeData *mime)
 {
   QStringList paths;
-  if (mime == nullptr || !mime->hasUrls())
+  if (mime == nullptr)
     return paths;
 
-  const QList<QUrl> urls = mime->urls();
-  paths.reserve(urls.size());
-  for (const QUrl &url : urls) {
-    const QString path = toLocalFilePath(url);
-    if (!path.isEmpty())
-      paths.append(path);
+  if (mime->hasUrls()) {
+    const QList<QUrl> urls = mime->urls();
+    paths.reserve(urls.size());
+    for (const QUrl &url : urls) {
+      const QString path = toLocalFilePath(url);
+      if (!path.isEmpty())
+        paths.append(path);
+    }
   }
+
+  // Explorer's Ctrl+C is CF_HDROP. Qt does not always surface that as URLs
+  // (delayed rendering, or the windows mime converter not running yet).
+  if (paths.isEmpty()) {
+    const QString hdrop = QStringLiteral("application/x-qt-windows-mime;value=\"CF_HDROP\"");
+    QByteArray blob = mime->data(hdrop);
+    if (blob.isEmpty())
+      blob = mime->data(QStringLiteral("application/x-qt-windows-mime;value=\"CF_HDROP\""));
+    paths = parseWindowsDropFiles(blob);
+  }
+
+  if (paths.isEmpty())
+    paths = pathsFromUriList(mime->data(QStringLiteral("text/uri-list")));
+
   paths.removeDuplicates();
   return paths;
+}
+
+QByteArray ClipboardFileBridge::imageContentHash(const QImage &image)
+{
+  if (image.isNull() || image.sizeInBytes() <= 0)
+    return {};
+  QCryptographicHash hash(QCryptographicHash::Sha1);
+  hash.addData(QByteArrayView(QByteArray::number(image.width())));
+  hash.addData(QByteArrayView(QByteArray::number(image.height())));
+  hash.addData(QByteArrayView(reinterpret_cast<const char *>(image.constBits()), image.sizeInBytes()));
+  return hash.result();
+}
+
+QString ClipboardFileBridge::imageDropDirectory()
+{
+  return QStandardPaths::writableLocation(QStandardPaths::TempLocation) + QStringLiteral("/litekvm-clip");
+}
+
+QStringList ClipboardFileBridge::parseWindowsDropFiles(const QByteArray &bytes)
+{
+  // DROPFILES: DWORD pFiles, POINT (two LONG), BOOL fNC, BOOL fWide.
+  if (bytes.size() < 20)
+    return {};
+
+  const auto *raw = reinterpret_cast<const uchar *>(bytes.constData());
+  const quint32 pFiles = qFromLittleEndian<quint32>(raw);
+  const quint32 wide = qFromLittleEndian<quint32>(raw + 16);
+  if (pFiles >= static_cast<quint32>(bytes.size()))
+    return {};
+
+  QStringList paths;
+  if (wide) {
+    const auto *cursor = reinterpret_cast<const char16_t *>(raw + pFiles);
+    const auto *end = reinterpret_cast<const char16_t *>(raw + bytes.size());
+    while (cursor + 1 < end && *cursor != 0) {
+      const char16_t *start = cursor;
+      while (cursor < end && *cursor != 0)
+        ++cursor;
+      if (cursor >= end)
+        break;
+      paths.append(QString::fromUtf16(start, int(cursor - start)));
+      ++cursor;
+    }
+  } else {
+    const char *cursor = bytes.constData() + pFiles;
+    const char *end = bytes.constData() + bytes.size();
+    while (cursor < end && *cursor != 0) {
+      const char *start = cursor;
+      while (cursor < end && *cursor != 0)
+        ++cursor;
+      paths.append(QString::fromLocal8Bit(start, int(cursor - start)));
+      if (cursor < end)
+        ++cursor;
+    }
+  }
+  return normalizedPaths(paths);
+}
+
+ClipboardFileBridge::CapturedPayload ClipboardFileBridge::capture(const QMimeData *mime, const QString &imageDirectory)
+{
+  CapturedPayload out;
+  if (mime == nullptr)
+    return out;
+
+  const QStringList files = localPathsFromMime(mime);
+  const bool pureFileList = !files.isEmpty() && (!mime->hasUrls() || isLocalFileList(mime));
+  if (pureFileList) {
+    out.paths = files;
+    out.intent = QStringLiteral("clipboard");
+    return out;
+  }
+
+  if (!mime->hasImage())
+    return out;
+
+  const QImage image = qvariant_cast<QImage>(mime->imageData());
+  if (image.isNull() || imageDirectory.isEmpty())
+    return out;
+
+  QDir().mkpath(imageDirectory);
+  const QString path =
+      imageDirectory + QStringLiteral("/litekvm-image-%1.png").arg(QDateTime::currentMSecsSinceEpoch());
+  if (!image.save(path, "PNG"))
+    return out;
+  out.paths = QStringList{QDir::toNativeSeparators(path)};
+  out.intent = QStringLiteral("image");
+  return out;
 }
 
 QStringList ClipboardFileBridge::normalizedPaths(const QStringList &localPaths)
@@ -216,11 +364,27 @@ void ClipboardFileBridge::onClipboardDataChanged()
 {
   if (!m_clipboard)
     return;
-  // mimeData() is null when the clipboard cannot be opened (on Windows one
-  // process owns it at a time, so this happens routinely while another app is
-  // writing) and when the clipboard really is empty. Both mean "nothing we can
-  // read" — not a change, and definitely not a crash.
-  handleClipboardData(m_clipboard->mimeData());
+  // Explorer often fires dataChanged before CF_HDROP / the bitmap is readable.
+  // Poll a couple of times instead of treating the first empty read as final.
+  m_readAttempts = 0;
+  const QMimeData *mime = m_clipboard->mimeData();
+  if (handleClipboardData(mime))
+    return;
+  if (!mimeLooksDelayed(mime))
+    return;
+  ++m_readAttempts;
+  QTimer::singleShot(80, this, [this] {
+    if (!m_clipboard || m_readAttempts > 2)
+      return;
+    if (handleClipboardData(m_clipboard->mimeData()))
+      return;
+    ++m_readAttempts;
+    QTimer::singleShot(200, this, [this] {
+      if (!m_clipboard || m_readAttempts > 2)
+        return;
+      handleClipboardData(m_clipboard->mimeData());
+    });
+  });
 }
 
 bool ClipboardFileBridge::handleClipboardData(const QMimeData *mime)
@@ -228,23 +392,39 @@ bool ClipboardFileBridge::handleClipboardData(const QMimeData *mime)
   if (!m_watchEnabled)
     return false;
 
-  const QStringList paths = localPathsFromMime(mime);
+  // Hash before capture() so a duplicate bitmap does not become a second PNG.
+  QByteArray imageHash;
+  const bool imageOnly = mime != nullptr && mime->hasImage() && localPathsFromMime(mime).isEmpty();
+  if (imageOnly) {
+    imageHash = imageContentHash(qvariant_cast<QImage>(mime->imageData()));
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (m_imageDedupeMs > 0 && !imageHash.isEmpty() && imageHash == m_lastImageHash &&
+        now - m_lastImageAtMs < m_imageDedupeMs)
+      return false;
+  }
+
+  const CapturedPayload captured = capture(mime, imageDropDirectory());
 
   // Our own paste coming back through dataChanged(). Dropping it here is what
   // stops two machines from re-sending the same files to each other forever.
-  if (isEchoOfOwnWrite(paths))
+  if (isEchoOfOwnWrite(captured.paths))
+    return false;
+  if (captured.intent == QLatin1String("image") && m_imageEchoArmed && selfWriteGuardActive())
     return false;
 
-  if (!isLocalFileList(mime)) {
-    // Text, an image, a browser link, a mixed set: not our business.
+  if (captured.paths.isEmpty()) {
     m_localFiles.clear();
     setFileClipboardState(false);
     return false;
   }
 
-  m_localFiles = paths;
+  m_localFiles = captured.paths;
   setFileClipboardState(true);
-  Q_EMIT localFilesCopied(paths);
+  if (captured.intent == QLatin1String("image") && !imageHash.isEmpty()) {
+    m_lastImageHash = imageHash;
+    m_lastImageAtMs = QDateTime::currentMSecsSinceEpoch();
+  }
+  Q_EMIT localFilesCopied(captured.paths, captured.intent);
   return true;
 }
 
@@ -257,6 +437,11 @@ void ClipboardFileBridge::refresh()
 
 bool ClipboardFileBridge::putFilesOnClipboard(const QStringList &localPaths)
 {
+  return putFilesOnClipboard(localPaths, true);
+}
+
+bool ClipboardFileBridge::putFilesOnClipboard(const QStringList &localPaths, bool includeImageData)
+{
   if (!m_clipboard)
     return false; // no clipboard in this process
 
@@ -267,6 +452,17 @@ bool ClipboardFileBridge::putFilesOnClipboard(const QStringList &localPaths)
   std::unique_ptr<QMimeData> mime(makeFileMimeData(written));
   if (!mime)
     return false;
+
+  m_imageEchoArmed = false;
+  if (includeImageData && written.size() == 1 && isImageSuffix(written.first())) {
+    const QImage image(written.first());
+    if (!image.isNull()) {
+      mime->setImageData(image);
+      m_imageEchoArmed = true;
+      m_lastImageHash = imageContentHash(image);
+      m_lastImageAtMs = QDateTime::currentDateTimeUtc().toMSecsSinceEpoch();
+    }
+  }
 
   // Arm the guard *before* the write: setMimeData() can deliver the matching
   // dataChanged() synchronously here, and the echo must already be
@@ -330,6 +526,7 @@ void ClipboardFileBridge::onSelfWriteGuardExpired()
   // The window closed. Forgetting what we wrote is deliberate: a user copying
   // those same files again later is a real copy and must be reported.
   m_recentWrites.clear();
+  m_imageEchoArmed = false;
 }
 
 } // namespace litekvm

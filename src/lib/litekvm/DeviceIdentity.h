@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM device identity — Ed25519 keypair, persistent device_id, fingerprint.
 //
 // Spec: docs/discovery-pairing-spec.md §2 (litekvm-design repo)
@@ -20,7 +21,8 @@ namespace litekvm {
  * - fingerprint = hex(SHA256(pubkey)[0..8]) — shown to user during pairing.
  * - Stored as JSON (pub/priv base64) under the app data dir.
  */
-class DeviceIdentity {
+class DeviceIdentity
+{
 public:
   static std::optional<DeviceIdentity> loadOrCreate(const QString &storageFileOverride = {});
 

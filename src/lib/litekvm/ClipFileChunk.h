@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM cross-machine file clipboard — Qt-free wire-format core.
 //
 // Spec: docs/plans/2026-08-25-litekvm-mvp.md Phase 4 Task 4.1
@@ -48,8 +49,8 @@ namespace litekvm {
 // --------------------------------------------------------------- constants
 
 inline constexpr std::size_t kClipKindBytes = 1;
-inline constexpr std::size_t kClipControlLengthBytes = 2; ///< control frames: as PairingService
-inline constexpr std::size_t kClipDataLengthBytes = 4;    ///< data frames: 256 KiB+ needs >16 bits
+inline constexpr std::size_t kClipControlLengthBytes = 2;        ///< control frames: as PairingService
+inline constexpr std::size_t kClipDataLengthBytes = 4;           ///< data frames: 256 KiB+ needs >16 bits
 inline constexpr std::size_t kClipDefaultChunkSize = 256 * 1024; ///< 256 KiB (plan Task 4.1)
 inline constexpr std::size_t kClipMinChunkSize = 4 * 1024;
 inline constexpr std::size_t kClipMaxChunkSize = 4 * 1024 * 1024;
@@ -60,18 +61,20 @@ inline constexpr std::size_t kClipMaxControlPayload = 64 * 1024;
 /// Largest data-frame payload: one full-size chunk plus its header.
 inline constexpr std::size_t kClipMaxDataPayload = kClipChunkHeaderBytes + kClipMaxChunkSize;
 /// Sanity cap for a single file, and the default cap for a whole transfer.
-inline constexpr std::uint64_t kClipMaxFileBytes = std::uint64_t(1) << 40; // 1 TiB
+inline constexpr std::uint64_t kClipMaxFileBytes = std::uint64_t(1) << 40;            // 1 TiB
 inline constexpr std::uint64_t kClipDefaultMaxTransferBytes = std::uint64_t(2) << 30; // 2 GiB
 inline constexpr const char *kClipPartSuffix = ".litekvm-part";
 
 using Sha1Digest = std::array<std::uint8_t, kClipSha1Bytes>;
 
-enum class ClipFrameKind : std::uint8_t {
+enum class ClipFrameKind : std::uint8_t
+{
   Control = 0x01, ///< payload is a UTF-8 JSON object
   Data = 0x02,    ///< payload is ChunkHeader || chunk bytes
 };
 
-struct ClipFrame {
+struct ClipFrame
+{
   ClipFrameKind kind = ClipFrameKind::Control;
   std::vector<std::uint8_t> payload;
 };
@@ -85,7 +88,8 @@ namespace clipsha1 {
  * checks, never for authentication — the paired deskflow data channel is
  * already encrypted and authenticated.
  */
-class Sha1 {
+class Sha1
+{
 public:
   static constexpr std::size_t DigestBytes = kClipSha1Bytes;
   static constexpr std::size_t BlockBytes = 64;
@@ -96,7 +100,7 @@ public:
   void update(const void *data, std::size_t len);
 
   /// Idempotent: calling it twice returns the same digest.
-  const Sha1Digest &final();
+  const Sha1Digest & final();
 
   std::string hex();
 
@@ -133,16 +137,15 @@ void be64Write(std::uint8_t *p, std::uint64_t v);
 /// Serialises one frame. Returns an empty vector when the payload is oversized
 /// for its kind (control > 64 KiB, data > 4 MiB + header) or empty-when-it-
 /// cannot-be (a control frame needs at least 1 byte of JSON).
-std::vector<std::uint8_t> encodeFrame(ClipFrameKind kind, const std::uint8_t *payload,
-                                     std::size_t payloadLen);
+std::vector<std::uint8_t> encodeFrame(ClipFrameKind kind, const std::uint8_t *payload, std::size_t payloadLen);
 
 /// Convenience overload for JSON control payloads.
 std::vector<std::uint8_t> encodeControlFrame(std::string_view jsonUtf8);
 
 /// Serialises one data frame from a header plus its chunk bytes.
 /// @p data may be nullptr when header.dataLen == 0.
-std::vector<std::uint8_t> encodeDataFrame(const std::uint8_t *header, std::size_t headerLen,
-                                          const std::uint8_t *data, std::size_t dataLen);
+std::vector<std::uint8_t>
+encodeDataFrame(const std::uint8_t *header, std::size_t headerLen, const std::uint8_t *data, std::size_t dataLen);
 
 // ------------------------------------------------------- incremental decoder
 
@@ -151,10 +154,12 @@ std::vector<std::uint8_t> encodeDataFrame(const std::uint8_t *header, std::size_
  * then pull out complete frames one at a time. Mirrors the buffer logic of
  * PairingService::onReadyRead() but without Qt.
  */
-class FrameDecoder {
+class FrameDecoder
+{
 public:
-  explicit FrameDecoder(std::size_t maxControlPayload = kClipMaxControlPayload,
-                        std::size_t maxDataPayload = kClipMaxDataPayload);
+  explicit FrameDecoder(
+      std::size_t maxControlPayload = kClipMaxControlPayload, std::size_t maxDataPayload = kClipMaxDataPayload
+  );
 
   void append(const std::uint8_t *data, std::size_t len);
   void append(const std::vector<std::uint8_t> &data);
@@ -203,7 +208,8 @@ private:
 
 // ------------------------------------------------------------- chunk header
 
-struct ChunkHeader {
+struct ChunkHeader
+{
   std::uint32_t seq = 0;
   std::uint64_t offset = 0;
   std::uint32_t dataLen = 0;
@@ -223,8 +229,9 @@ bool decodeChunkHeader(const std::uint8_t *data, std::size_t len, ChunkHeader *o
 std::vector<std::uint8_t> encodeChunkHeader(const ChunkHeader &header);
 
 /// Builds a header for @p data, hashing it into digest and setting data_len.
-bool makeChunkHeader(std::uint32_t seq, std::uint64_t offset, const std::uint8_t *data,
-                     std::size_t dataLen, ChunkHeader *out);
+bool makeChunkHeader(
+    std::uint32_t seq, std::uint64_t offset, const std::uint8_t *data, std::size_t dataLen, ChunkHeader *out
+);
 
 /// ChunkHeader || chunk bytes, ready to become a Data frame payload, or to be
 /// handed to encodeDataFrame(). Uses header.dataLen as the copy length; the
@@ -232,8 +239,9 @@ bool makeChunkHeader(std::uint32_t seq, std::uint64_t offset, const std::uint8_t
 std::vector<std::uint8_t> encodeDataPayload(const ChunkHeader &header, const std::uint8_t *data);
 
 /// Splits a Data frame payload; @p data points into @p payload.
-bool decodeDataPayload(const std::vector<std::uint8_t> &payload, ChunkHeader *header,
-                       const std::uint8_t **data, std::size_t *dataLen);
+bool decodeDataPayload(
+    const std::vector<std::uint8_t> &payload, ChunkHeader *header, const std::uint8_t **data, std::size_t *dataLen
+);
 
 /// Re-hashes @p data and compares it with header.digest.
 bool chunkDigestMatches(const ChunkHeader &header, const std::uint8_t *data);
@@ -245,7 +253,8 @@ bool chunkDigestMatches(const ChunkHeader &header, const std::uint8_t *data);
  * An empty file still has exactly one (empty) chunk, so both sides agree on
  * frame counts without a special case.
  */
-class ChunkPlan {
+class ChunkPlan
+{
 public:
   ChunkPlan() = default;
   ChunkPlan(std::uint64_t fileSize, std::size_t chunkSize);
@@ -285,7 +294,8 @@ private:
 
 // ---------------------------------------------------------------- progress
 
-struct TransferProgress {
+struct TransferProgress
+{
   std::uint64_t bytesDone = 0;
   std::uint64_t bytesTotal = 0;
 

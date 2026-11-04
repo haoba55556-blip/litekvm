@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM pairing protocol over TCP/25901 — length-prefixed JSON frames.
 //
 // Both roles live here: server (displays PIN, accepts) and client (initiator,
@@ -14,8 +15,8 @@
 
 #include <QDateTime>
 #include <QJsonDocument>
-#include <QJsonParseError>
 #include <QJsonObject>
+#include <QJsonParseError>
 #include <QMap>
 #include <QObject>
 #include <QTcpServer>
@@ -25,11 +26,20 @@
 
 namespace litekvm {
 
-class PairingService : public QObject {
+class PairingService : public QObject
+{
   Q_OBJECT
 
 public:
-  enum class Error { Timeout, Rejected, WrongCode, RateLimited, ProtoMismatch, Busy };
+  enum class Error
+  {
+    Timeout,
+    Rejected,
+    WrongCode,
+    RateLimited,
+    ProtoMismatch,
+    Busy
+  };
   static QString toString(Error e);
 
   PairingService(const DeviceIdentity &self, TrustStore &trust, QObject *parent = nullptr);
@@ -61,7 +71,8 @@ private Q_SLOTS:
   void onReadyRead();
 
 private:
-  struct NoncePair {
+  struct NoncePair
+  {
     QByteArray first;
     QByteArray second;
   };

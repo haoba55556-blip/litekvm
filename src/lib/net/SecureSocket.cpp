@@ -156,6 +156,7 @@ TCPSocket::JobResult SecureSocket::doRead()
     if (wasEmpty) {
       sendEvent(EventTypes::StreamInputReady);
     }
+    refreshQuickAck();
   } else {
     // remote write end of stream hungup.  our input side
     // has therefore shutdown but don't flush our buffer

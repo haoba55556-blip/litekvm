@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKvmController — glue between MainWindow and the litekvm zero-config
 // layer (identity, discovery, advertiser, pairing, file clipboard).
 #include "LiteKvmController.h"
@@ -7,6 +7,7 @@
 #include "common/Settings.h"
 #include "litekvm/ClipFileService.h"
 #include "litekvm/ClipFileTransfer.h"
+#include "litekvm/ClipRoute.h"
 #include "litekvm/ClipboardFileBridge.h"
 #include "litekvm/MdnsAdvertiser.h"
 
@@ -29,36 +30,29 @@ LiteKvmController::LiteKvmController(QObject *parent) : QObject(parent)
 
   const quint16 pairingPort = 25901;
 
-  connect(m_discovery, &litekvm::DiscoveryService::peerDiscovered, this,
-          &LiteKvmController::peerDiscovered);
-  connect(m_discovery, &litekvm::DiscoveryService::peerUpdated, this,
-          &LiteKvmController::peerUpdated);
-  connect(m_discovery, &litekvm::DiscoveryService::peerOffline, this,
-          &LiteKvmController::peerOffline);
+  connect(m_discovery, &litekvm::DiscoveryService::peerDiscovered, this, &LiteKvmController::peerDiscovered);
+  connect(m_discovery, &litekvm::DiscoveryService::peerUpdated, this, &LiteKvmController::peerUpdated);
+  connect(m_discovery, &litekvm::DiscoveryService::peerOffline, this, &LiteKvmController::peerOffline);
 
-  connect(m_pairing, &litekvm::PairingService::pairChallenge, this,
-          &LiteKvmController::pairChallenge);
-  connect(m_pairing, &litekvm::PairingService::pairingSucceeded, this,
-          [this](const QString &id, const QString &name) {
-            m_advertiser->setState(litekvm::MdnsAdvertiser::PeerState::Pairable);
-            Q_EMIT pairingSucceeded(id, name);
-          });
-  connect(m_pairing, &litekvm::PairingService::pairingFailed, this,
-          &LiteKvmController::pairingFailed);
+  connect(m_pairing, &litekvm::PairingService::pairChallenge, this, &LiteKvmController::pairChallenge);
+  connect(m_pairing, &litekvm::PairingService::pairingSucceeded, this, [this](const QString &id, const QString &name) {
+    m_advertiser->setState(litekvm::MdnsAdvertiser::PeerState::Pairable);
+    Q_EMIT pairingSucceeded(id, name);
+  });
+  connect(m_pairing, &litekvm::PairingService::pairingFailed, this, &LiteKvmController::pairingFailed);
 
-  if (m_advertiser->start(*m_identity, pairingPort))
-    m_discovery->start(*m_identity, m_trust.get());
+  // Listen before the first announce. The advertiser also repeats every
+  // couple of seconds, so a peer that boots later still gets found.
+  m_discovery->start(*m_identity, m_trust.get());
+  m_advertiser->start(*m_identity, pairingPort);
 
   m_pairing->listen(pairingPort);
 
-  // AutoConnect: paired peer online -> autoSessionRequested (minimal wiring)
+  // AutoConnect: paired peer online -> autoSessionRequested.
+  // The enabled flag is restored by MainWindow AFTER it connects the signal.
+  // Enabling here would mark the peer "attempted" with nobody listening.
   m_autoConnect = new litekvm::AutoConnect(*m_identity, *m_trust, *m_discovery, this);
-  connect(m_autoConnect, &litekvm::AutoConnect::autoConnectRequested, this,
-          &LiteKvmController::autoSessionRequested);
-  // restore persisted toggle — without this the switch silently resets to
-  // "off" on every launch and auto-connect never runs (bug found 2026-09-20)
-  if (Settings::value(QStringLiteral("litekvm/autoConnect")).toBool())
-    m_autoConnect->setEnabled(true);
+  connect(m_autoConnect, &litekvm::AutoConnect::autoConnectRequested, this, &LiteKvmController::autoSessionRequested);
 
   setupFileClipboard();
 }
@@ -79,6 +73,38 @@ void LiteKvmController::setAutoConnectEnabled(bool enabled)
     m_autoConnect->setEnabled(enabled);
   Settings::setValue(QStringLiteral("litekvm/autoConnect"), enabled);
   Settings::save(false);
+}
+
+void LiteKvmController::noteAutoSessionUp(const QString &deviceId)
+{
+  if (m_autoConnect)
+    m_autoConnect->noteSessionUp(deviceId);
+}
+
+void LiteKvmController::noteAutoSessionDown(const QString &deviceId)
+{
+  if (m_autoConnect)
+    m_autoConnect->noteSessionDown(deviceId);
+}
+
+void LiteKvmController::noteLivePeer(const QString &screenName, const QString &host)
+{
+  const QString addr = litekvm::DiscoveryService::normalizeHost(host);
+  if (addr.isEmpty() || !m_trust)
+    return;
+  m_livePeerHost = addr;
+  m_livePeerName = screenName;
+  const int paired = int(m_trust->entries().size());
+  for (const auto &entry : m_trust->entries()) {
+    litekvm::ClipRouteInput route;
+    route.liveHost = addr;
+    route.liveScreenName = screenName;
+    route.deviceId = entry.deviceId;
+    route.deviceName = entry.name;
+    route.pairedCount = paired;
+    if (litekvm::liveHostApplies(route))
+      m_trust->updateLastAddr(entry.deviceId, addr);
+  }
 }
 
 void LiteKvmController::startPairing(const QString &deviceId)
@@ -123,74 +149,80 @@ void LiteKvmController::setupFileClipboard()
   m_clipBridge = new litekvm::ClipboardFileBridge(this);
 
   // ---- ClipFileService -> UI ----
-  connect(m_clipFile, &litekvm::ClipFileService::offerReceived, this,
-          [this](const litekvm::ClipFileOffer &offer) {
-            if (!m_fileClipboardEnabled) {
-              // 关掉文件剪贴板时不打扰用户，静默拒绝
-              m_clipFile->rejectOffer();
-              return;
-            }
-            QStringList names;
-            names.reserve(offer.entries.size());
-            for (const auto &entry : offer.entries)
-              names.append(entry.isDirectory ? entry.relPath + QLatin1Char('/') : entry.relPath);
+  connect(m_clipFile, &litekvm::ClipFileService::offerReceived, this, [this](const litekvm::ClipFileOffer &offer) {
+    if (!m_fileClipboardEnabled) {
+      // 关掉文件剪贴板时不打扰用户，静默拒绝
+      m_clipFile->rejectOffer();
+      return;
+    }
+    QStringList names;
+    names.reserve(offer.entries.size());
+    for (const auto &entry : offer.entries)
+      names.append(entry.isDirectory ? entry.relPath + QLatin1Char('/') : entry.relPath);
 
-            m_transferActive = true;
-            m_transferOutgoing = false;
-            Q_EMIT fileOfferReceived(offer.peerName, names, offer.totalBytes, int(offer.entries.size()));
-          });
+    m_transferActive = true;
+    m_transferOutgoing = false;
+    const QString intent = offer.intent.isEmpty() ? QStringLiteral("clipboard") : offer.intent;
+    Q_EMIT fileOfferReceived(offer.peerName, names, offer.totalBytes, int(offer.entries.size()), intent);
+  });
 
-  connect(m_clipFile, &litekvm::ClipFileService::progressChanged, this,
-          [this](const litekvm::TransferProgress &progress) {
-            Q_EMIT fileProgressChanged(progress.bytesDone, progress.bytesTotal, m_transferOutgoing);
-          });
+  connect(
+      m_clipFile, &litekvm::ClipFileService::progressChanged, this,
+      [this](const litekvm::TransferProgress &progress) {
+        Q_EMIT fileProgressChanged(progress.bytesDone, progress.bytesTotal, m_transferOutgoing);
+      }
+  );
 
-  connect(m_clipFile, &litekvm::ClipFileService::transferCompleted, this,
-          [this](const QStringList &localPaths, const QString &transferId) {
-            m_transferActive = false;
-            Q_EMIT fileTransferCompleted(localPaths, m_transferOutgoing, transferId);
-          });
+  connect(
+      m_clipFile, &litekvm::ClipFileService::transferCompleted, this,
+      [this](const QStringList &localPaths, const QString &transferId) {
+        m_transferActive = false;
+        Q_EMIT fileTransferCompleted(localPaths, m_transferOutgoing, transferId);
+      }
+  );
 
-  connect(m_clipFile, &litekvm::ClipFileService::transferFailed, this,
-          [this](litekvm::ClipFileTransfer::Error error, const QString &detail) {
-            m_transferActive = false;
+  connect(
+      m_clipFile, &litekvm::ClipFileService::transferFailed, this,
+      [this](litekvm::ClipFileTransfer::Error error, const QString &detail) {
+        m_transferActive = false;
 
-            using E = litekvm::ClipFileTransfer::Error;
-            QString reason;
-            switch (error) {
-            case E::Io:
-              reason = tr("读写文件失败");
-              break;
-            case E::Checksum:
-              reason = tr("文件校验失败（sha1 不一致）");
-              break;
-            case E::Protocol:
-              reason = tr("协议错误");
-              break;
-            case E::Rejected:
-              reason = tr("对端拒绝了这次传输");
-              break;
-            case E::Cancelled:
-              reason = tr("传输已取消");
-              break;
-            case E::TooLarge:
-              reason = tr("文件超过单次传输上限");
-              break;
-            case E::Timeout:
-              reason = tr("等待对端超时");
-              break;
-            case E::PeerError:
-              reason = tr("对端出错");
-              break;
-            case E::None:
-            default:
-              reason = litekvm::ClipFileTransfer::toString(error);
-              break;
-            }
-            if (!detail.isEmpty())
-              reason += QStringLiteral("（%1）").arg(detail);
-            Q_EMIT fileTransferFailed(reason, m_transferOutgoing);
-          });
+        using E = litekvm::ClipFileTransfer::Error;
+        QString reason;
+        switch (error) {
+        case E::Io:
+          reason = tr("读写文件失败");
+          break;
+        case E::Checksum:
+          reason = tr("文件校验失败（sha1 不一致）");
+          break;
+        case E::Protocol:
+          reason = tr("协议错误");
+          break;
+        case E::Rejected:
+          reason = tr("对端拒绝了这次传输");
+          break;
+        case E::Cancelled:
+          reason = tr("传输已取消");
+          break;
+        case E::TooLarge:
+          reason = tr("文件超过单次传输上限");
+          break;
+        case E::Timeout:
+          reason = tr("等待对端超时");
+          break;
+        case E::PeerError:
+          reason = tr("对端出错");
+          break;
+        case E::None:
+        default:
+          reason = litekvm::ClipFileTransfer::toString(error);
+          break;
+        }
+        if (!detail.isEmpty())
+          reason += QStringLiteral("（%1）").arg(detail);
+        Q_EMIT fileTransferFailed(reason, m_transferOutgoing);
+      }
+  );
 
   connect(m_clipFile, &litekvm::ClipFileService::transferCancelled, this, [this](const QString &transferId) {
     Q_UNUSED(transferId)
@@ -198,8 +230,9 @@ void LiteKvmController::setupFileClipboard()
     Q_EMIT fileTransferCancelled(m_transferOutgoing);
   });
 
-  connect(m_clipFile, &litekvm::ClipFileService::errorOccurred, this,
-          [this](const QString &message) { Q_EMIT fileClipboardError(message); });
+  connect(m_clipFile, &litekvm::ClipFileService::errorOccurred, this, [this](const QString &message) {
+    Q_EMIT fileClipboardError(message);
+  });
 
   // 会话被对端/网络拉断时 ClipFileTransfer 不一定能报出终态，这里兜一下，
   // 免得进度窗口一直挂在那儿。
@@ -214,12 +247,14 @@ void LiteKvmController::setupFileClipboard()
   // 构造后就开始监视本机剪贴板（没有 GUI 时它自己不去碰系统剪贴板）；关闭文件
   // 剪贴板时 setFileClipboardEnabled() 会用 setWatchEnabled(false) 停掉上报，
   // 这里的 enabled 判断是第二道保险。
-  connect(m_clipBridge, &litekvm::ClipboardFileBridge::localFilesCopied, this,
-          [this](const QStringList &paths) {
-            if (!m_fileClipboardEnabled || paths.isEmpty())
-              return;
-            Q_EMIT localFilesCopied(paths);
-          });
+  connect(
+      m_clipBridge, &litekvm::ClipboardFileBridge::localFilesCopied, this,
+      [this](const QStringList &paths, const QString &intent) {
+        if (!m_fileClipboardEnabled || paths.isEmpty())
+          return;
+        Q_EMIT localFilesCopied(paths, intent.isEmpty() ? QStringLiteral("clipboard") : intent);
+      }
+  );
 }
 
 void LiteKvmController::setFileClipboardEnabled(bool enabled)
@@ -265,23 +300,51 @@ QList<LiteKvmController::ClipTarget> LiteKvmController::clipTargets() const
 {
   QList<ClipTarget> targets;
   QSet<QString> seen;
+  const int paired = m_trust ? int(m_trust->entries().size()) : 0;
 
-  // 1) 正在 mDNS 里可见、且已配对的设备（可以直接发）
+  auto routeHost = [&](const QString &deviceId, const QString &name, const QString &discovered,
+                       const QString &trusted) {
+    litekvm::ClipRouteInput route;
+    route.liveHost = m_livePeerHost;
+    route.liveScreenName = m_livePeerName;
+    route.deviceId = deviceId;
+    route.deviceName = name;
+    route.pairedCount = paired;
+    route.discoveredHost = discovered;
+    route.trustedHost = trusted;
+    return litekvm::clipRouteHost(route);
+  };
+
+  // 1) mDNS peers, but a live core socket address replaces a stale host.
   if (m_discovery) {
     for (const auto &peer : m_discovery->peers()) {
-      if (peer.state != litekvm::DiscoveredPeer::State::Paired || peer.host.isEmpty())
+      if (peer.state != litekvm::DiscoveredPeer::State::Paired)
         continue;
-      targets.append(ClipTarget{peer.deviceId, peer.name, peer.platform, peer.host, clipFilePort(), true});
+      QString trusted;
+      if (m_trust) {
+        if (const auto *entry = m_trust->find(peer.deviceId))
+          trusted = entry->lastAddr;
+      }
+      const QString host = routeHost(peer.deviceId, peer.name, peer.host, trusted);
+      if (host.isEmpty())
+        continue;
+      targets.append(ClipTarget{peer.deviceId, peer.name, peer.platform, host, clipFilePort(), true});
       seen.insert(peer.deviceId);
     }
   }
 
-  // 2) 信任库里记过地址、但眼下不在 mDNS 列表里的设备
+  // 2) Paired devices discovery cannot see. Live socket address wins over trust.json.
   if (m_trust) {
     for (const auto &entry : m_trust->entries()) {
-      if (seen.contains(entry.deviceId) || entry.lastAddr.isEmpty())
+      if (seen.contains(entry.deviceId))
         continue;
-      targets.append(ClipTarget{entry.deviceId, entry.name, entry.platform, entry.lastAddr, clipFilePort(), false});
+      const QString host = routeHost(entry.deviceId, entry.name, QString(), entry.lastAddr);
+      if (host.isEmpty())
+        continue;
+      const bool live = litekvm::liveHostApplies(
+          {m_livePeerHost, m_livePeerName, entry.deviceId, entry.name, paired, {}, entry.lastAddr}
+      );
+      targets.append(ClipTarget{entry.deviceId, entry.name, entry.platform, host, clipFilePort(), live});
       seen.insert(entry.deviceId);
     }
   }
@@ -298,7 +361,7 @@ std::optional<LiteKvmController::ClipTarget> LiteKvmController::findTarget(const
   return std::nullopt;
 }
 
-void LiteKvmController::sendFilesToPeer(const QString &deviceId, const QStringList &paths)
+void LiteKvmController::sendFilesToPeer(const QString &deviceId, const QStringList &paths, const QString &intent)
 {
   if (!m_clipFile || !m_fileClipboardEnabled || paths.isEmpty())
     return;
@@ -311,7 +374,7 @@ void LiteKvmController::sendFilesToPeer(const QString &deviceId, const QStringLi
 
   m_transferActive = true;
   m_transferOutgoing = true;
-  m_clipFile->sendFilesTo(target->host, target->port, paths);
+  m_clipFile->sendFilesTo(target->host, target->port, paths, intent);
 }
 
 void LiteKvmController::acceptIncomingFiles()

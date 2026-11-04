@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM device identity — Ed25519 keypair, persistent device_id, fingerprint.
 //
 // Spec: docs/discovery-pairing-spec.md §2 (litekvm-design repo)
@@ -48,7 +49,8 @@ bool unB64(const QString &in, uint8_t *out, size_t expect)
   return true;
 }
 
-struct KeyPair {
+struct KeyPair
+{
   std::array<uint8_t, 32> pub{};
   std::array<uint8_t, 64> priv{}; // seed(32) + pubkey(32) as in RFC8032 private form used by OpenSSL
 };

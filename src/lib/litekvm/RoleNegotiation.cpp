@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // RoleNegotiation — elects one server among N paired peers (feature 3:
 // multi-machine sharing). Election rule per spec §2: lexicographically
 // smallest online device_id wins; 5s hysteresis prevents flapping on
@@ -14,8 +14,7 @@ namespace {
 constexpr int kHysteresisMs = 5'000;
 } // namespace
 
-RoleNegotiation::RoleNegotiation(const DeviceIdentity &self, QObject *parent)
-  : QObject(parent), m_self(self)
+RoleNegotiation::RoleNegotiation(const DeviceIdentity &self, QObject *parent) : QObject(parent), m_self(self)
 {
   m_graceTimer.setSingleShot(true);
   connect(&m_graceTimer, &QTimer::timeout, this, &RoleNegotiation::reelect);
@@ -79,8 +78,7 @@ void RoleNegotiation::reelect()
   if (newServer != m_currentServer) {
     m_currentServer = newServer;
     ++m_epoch;
-    Q_EMIT roleChanged(newServer, m_epoch,
-                       newServer == m_self.deviceId() ? Role::Server : Role::Client);
+    Q_EMIT roleChanged(newServer, m_epoch, newServer == m_self.deviceId() ? Role::Server : Role::Client);
   }
 }
 

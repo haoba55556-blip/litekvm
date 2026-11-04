@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 #include "ClipTransferDialog.h"
 
 #include <QCloseEvent>
@@ -181,7 +181,9 @@ void ClipTransferDialog::refreshProgressText()
   m_bar->setValue(permille);
 
   if (m_running) {
-    m_lblDetail->setText(tr("%1% · %2 / %3%4").arg(permille / 10).arg(formatBytes(m_done), formatBytes(m_total), speedText()));
+    m_lblDetail->setText(
+        tr("%1% · %2 / %3%4").arg(permille / 10).arg(formatBytes(m_done), formatBytes(m_total), speedText())
+    );
   } else {
     m_lblDetail->setText(m_endMessage);
   }

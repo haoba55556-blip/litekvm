@@ -13,6 +13,7 @@
 #include "deskflow/ClipboardTypes.h"
 #include "deskflow/KeyTypes.h"
 #include "deskflow/KeyboardLayoutManager.h"
+#include "deskflow/MouseMotionCoalescer.h"
 
 class Client;
 class ClientInfo;
@@ -117,6 +118,8 @@ private:
   int32_t m_yMouse = 0;
   int32_t m_dxMouse = 0;
   int32_t m_dyMouse = 0;
+  MouseMotionCoalescer m_mouseCoalescer;
+  bool m_suppressNoop = false;
 
   bool m_ignoreMouse = false;
 

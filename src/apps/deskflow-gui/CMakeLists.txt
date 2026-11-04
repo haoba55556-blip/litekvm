@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 
 if(APPLE)
-  set(target Deskflow)
+  set(target ${OSX_BUNDLE_NAME})
 else()
   set(target deskflow)
 endif()

@@ -19,6 +19,7 @@
 #include "deskflow/Screen.h"
 #include "deskflow/StreamChunker.h"
 #include "deskflow/ipc/CoreIpc.h"
+#include "net/PeerHost.h"
 #include "net/TCPSocket.h"
 #include "server/ClientListener.h"
 #include "server/ClientProxy.h"
@@ -255,6 +256,14 @@ void Server::adoptClient(BaseClientProxy *client)
   LOG_DEBUG("client \"%s\" has connected", getName(client).c_str());
   ipcSendConnectionState(deskflow::core::ConnectionState::Connected);
   sendConnectedClientsIpc();
+  if (auto *proxy = dynamic_cast<ClientProxy *>(client)) {
+    const std::string host = peerHostOf(proxy->getStream());
+    if (!host.empty()) {
+      ipcSendToClient(
+          "peerSocket", QString::fromStdString(getName(client)) + QLatin1Char('|') + QString::fromStdString(host)
+      );
+    }
+  }
 
   // send configuration options to client
   sendOptions(client);

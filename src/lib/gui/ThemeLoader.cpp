@@ -1,7 +1,7 @@
 /*
  * LiteKVM — zero-config keyboard/mouse sharing
  * SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
- * SPDX-License-Identifier: GPL-2.0
+ * SPDX-License-Identifier: GPL-2.0-only
  *
  * ThemeLoader — installs the LiteKVM dark theme (see litekvm-theme-tokens.md).
  */
@@ -102,12 +102,9 @@ void applyAppFont()
 {
   // CJK-first stack: the primary audience runs Chinese Windows.
   static const QStringList kUiFontFamilies{
-      QStringLiteral("Microsoft YaHei UI"),
-      QStringLiteral("Microsoft YaHei"),
-      QStringLiteral("Segoe UI"),
-      QStringLiteral("Inter"),
-      QStringLiteral("Noto Sans CJK SC"),
-      QStringLiteral("Source Han Sans SC"),
+      QStringLiteral("Microsoft YaHei UI"), QStringLiteral("Microsoft YaHei"),
+      QStringLiteral("Segoe UI"),           QStringLiteral("Inter"),
+      QStringLiteral("Noto Sans CJK SC"),   QStringLiteral("Source Han Sans SC"),
   };
 
   QFont font = QApplication::font();

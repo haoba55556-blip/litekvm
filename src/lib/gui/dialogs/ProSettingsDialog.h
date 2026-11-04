@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 #pragma once
 
 #include <QDialog>
@@ -31,6 +31,7 @@ private:
   QCheckBox *m_chkAutoStart = nullptr;
   QCheckBox *m_chkAutoConnect = nullptr;
   QCheckBox *m_chkCloseToTray = nullptr;
+  QCheckBox *m_chkElevateCore = nullptr;
 };
 
 } // namespace deskflow::gui

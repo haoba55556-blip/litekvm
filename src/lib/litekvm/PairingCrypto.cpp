@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM pairing code derivation — both sides independently compute the same
 // 6-digit PIN from the exchanged nonces + both fingerprints.
 //
@@ -19,8 +20,10 @@ QByteArray hkdfSha256(const QByteArray &ikm, const QByteArray &salt, const QByte
   // extract
   uint8_t prk[EVP_MAX_MD_SIZE];
   unsigned int prkLen = 0;
-  HMAC(EVP_sha256(), salt.constData(), salt.size(), reinterpret_cast<const uint8_t *>(ikm.constData()),
-       ikm.size(), prk, &prkLen);
+  HMAC(
+      EVP_sha256(), salt.constData(), salt.size(), reinterpret_cast<const uint8_t *>(ikm.constData()), ikm.size(), prk,
+      &prkLen
+  );
 
   // expand
   QByteArray okm;
@@ -34,8 +37,7 @@ QByteArray hkdfSha256(const QByteArray &ikm, const QByteArray &salt, const QByte
     QByteArray input(reinterpret_cast<const char *>(t), tLen);
     input.append(info);
     input.append(char(iteration));
-    HMAC(EVP_sha256(), prk, prkLen, reinterpret_cast<const uint8_t *>(input.constData()), input.size(), t,
-         &tLen);
+    HMAC(EVP_sha256(), prk, prkLen, reinterpret_cast<const uint8_t *>(input.constData()), input.size(), t, &tLen);
     const int take = qMin(int(tLen), len - offset);
     okm.append(reinterpret_cast<const char *>(t), take);
     offset += take;
@@ -53,8 +55,7 @@ QByteArray randomNonce(int bytes)
   return out;
 }
 
-QString derivePairCode(const QByteArray &nonceA, const QByteArray &nonceB, const QString &fpA,
-                       const QString &fpB)
+QString derivePairCode(const QByteArray &nonceA, const QByteArray &nonceB, const QString &fpA, const QString &fpB)
 {
   QByteArray ikm;
   ikm.append(nonceA);
@@ -79,13 +80,16 @@ QByteArray hmacPairVerify(const QByteArray &code, const QByteArray &nonceA, cons
 
   uint8_t mac[EVP_MAX_MD_SIZE];
   unsigned int macLen = 0;
-  HMAC(EVP_sha256(), key.constData(), key.size(), reinterpret_cast<const uint8_t *>(msg.constData()),
-       msg.size(), mac, &macLen);
+  HMAC(
+      EVP_sha256(), key.constData(), key.size(), reinterpret_cast<const uint8_t *>(msg.constData()), msg.size(), mac,
+      &macLen
+  );
   return QByteArray(reinterpret_cast<const char *>(mac), int(macLen));
 }
 
-bool verifyPairHmac(const QByteArray &expectedMac, const QByteArray &code, const QByteArray &nonceA,
-                    const QByteArray &nonceB)
+bool verifyPairHmac(
+    const QByteArray &expectedMac, const QByteArray &code, const QByteArray &nonceA, const QByteArray &nonceB
+)
 {
   const QByteArray actual = hmacPairVerify(code, nonceA, nonceB);
   return expectedMac.size() == actual.size() &&

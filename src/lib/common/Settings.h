@@ -101,6 +101,8 @@ public:
     inline static const auto FileClipboardAutoSend = QStringLiteral("litekvm/fileClipboardAutoSend");
     inline static const auto FileClipboardAutoAccept = QStringLiteral("litekvm/fileClipboardAutoAccept");
     inline static const auto FileClipboardMaxMb = QStringLiteral("litekvm/fileClipboardMaxMb");
+    /// Run the core via a highest-privileges scheduled task (Windows).
+    inline static const auto ElevateCore = QStringLiteral("litekvm/elevateCore");
   };
   struct Security
   {
@@ -308,6 +310,7 @@ private:
     , LiteKvm::FileClipboardAutoAccept
     , LiteKvm::FileClipboardAutoSend
     , LiteKvm::FileClipboardMaxMb
+    , LiteKvm::ElevateCore
     , Security::Certificate
     , Security::CheckPeers
     , Security::KeySize
@@ -349,6 +352,7 @@ private:
     , Log::GuiDebug
     , LiteKvm::FileClipboardAutoAccept
     , LiteKvm::FileClipboardAutoSend
+    , LiteKvm::ElevateCore
     , Server::DefaultLockToComputerState
     , Server::DisableLockToComputer
     , Server::EnableHeatbeat

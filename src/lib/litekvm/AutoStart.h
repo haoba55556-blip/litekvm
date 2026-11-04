@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 #pragma once
 
 #include <QString>
@@ -11,7 +11,8 @@ namespace litekvm {
  * When launched with --autostart the GUI hides to tray and auto-connects
  * to any paired peer discovered on the LAN.
  */
-class AutoStart {
+class AutoStart
+{
 public:
   static bool supported();
   static bool isEnabled();

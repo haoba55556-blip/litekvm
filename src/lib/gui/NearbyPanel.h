@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 #pragma once
 
 #include "litekvm/DiscoveryService.h"
@@ -25,14 +25,19 @@ class LiteKvmController;
  * The .ui file promotes a plain QWidget to this class; the controller is
  * attached by MainWindow right after construction (setController).
  */
-class NearbyPanel : public QWidget {
+class NearbyPanel : public QWidget
+{
   Q_OBJECT
 
 public:
   explicit NearbyPanel(QWidget *parent = nullptr);
   void setController(LiteKvmController *controller);
 
-  void setShowTitle(bool show) { if (m_title) m_title->setVisible(show); }
+  void setShowTitle(bool show)
+  {
+    if (m_title)
+      m_title->setVisible(show);
+  }
 
 Q_SIGNALS:
   /// 用户点击「连接」/双击已配对设备 → 请求 MainWindow 以该设备为主机启动客户端。
@@ -60,4 +65,3 @@ private:
 };
 
 } // namespace deskflow::gui
-

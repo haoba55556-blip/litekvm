@@ -10,6 +10,7 @@
 
 #include "common/LogLevel.h"
 
+#include <atomic>
 #include <list>
 #include <mutex>
 
@@ -129,7 +130,9 @@ private:
   mutable std::mutex m_mutex;
   OutputterList m_outputters;
   OutputterList m_alwaysOutputters;
-  LogLevel::Level m_maxPriority;
+  // Lock-free so the mouse path can discard VERBOSE lines without taking
+  // m_mutex on every packet. Output still locks.
+  std::atomic<LogLevel::Level> m_maxPriority{LogLevel::Level::Info};
 };
 
 /*!
@@ -217,5 +220,21 @@ otherwise it expands to a call that doesn't.
 #define LOG_ERR(...) LOG((CLOG_ERR __VA_ARGS__))
 #define LOG_WARN(...) LOG((CLOG_WARN __VA_ARGS__))
 #define LOG_INFO(...) LOG((CLOG_INFO __VA_ARGS__))
-#define LOG_DEBUG(...) LOG((CLOG_DEBUG __VA_ARGS__))
-#define LOG_VERBOSE(...) LOG((CLOG_VERBOSE __VA_ARGS__))
+
+// Debug and verbose are on the pointer path. Skip print() entirely unless the
+// filter will keep the line — a Debug file log must not format every move.
+#if defined(NOLOGGING)
+#define LOG_DEBUG(...)
+#define LOG_VERBOSE(...)
+#else
+#define LOG_DEBUG(...)                                                                                                 \
+  do {                                                                                                                 \
+    if (CLOG->getFilter() >= LogLevel::Level::Debug)                                                                   \
+      CLOG->print(CLOG_DEBUG __VA_ARGS__);                                                                             \
+  } while (0)
+#define LOG_VERBOSE(...)                                                                                               \
+  do {                                                                                                                 \
+    if (CLOG->getFilter() >= LogLevel::Level::Verbose)                                                                 \
+      CLOG->print(CLOG_VERBOSE __VA_ARGS__);                                                                           \
+  } while (0)
+#endif

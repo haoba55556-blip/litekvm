@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM cross-machine file clipboard — chunked file transfer over an
 // already paired (encrypted) data channel.
 //
@@ -44,18 +45,22 @@ namespace litekvm {
 
 /// One file (or one directory) inside a transfer. Wire metadata only — the
 /// sender's absolute source path is kept aside so it never hits the wire.
-struct ClipFileEntry {
+struct ClipFileEntry
+{
   QString relPath; ///< UTF-8 relative path, '/' separated ("sub/中文.txt")
   qint64 size = 0;
   bool isDirectory = false;
 };
 
-struct ClipFileOffer {
+struct ClipFileOffer
+{
   QString transferId;
   QString peerName;
   QList<ClipFileEntry> entries;
   qint64 totalBytes = 0;
   int chunkSize = 0;
+  /// "clipboard" (Ctrl+C), "image" (bitmap saved to a file), or "drag".
+  QString intent = QStringLiteral("clipboard");
 };
 
 /**
@@ -68,11 +73,13 @@ struct ClipFileOffer {
  * verified it), so the sender only reports success once the bytes are verified
  * on disk at the other end.
  */
-class ClipFileTransfer : public QObject {
+class ClipFileTransfer : public QObject
+{
   Q_OBJECT
 
 public:
-  enum class Error {
+  enum class Error
+  {
     None,
     Io,
     Checksum,
@@ -86,13 +93,14 @@ public:
   Q_ENUM(Error)
   static QString toString(Error error);
 
-  enum class State {
+  enum class State
+  {
     Idle,
-    Offering,     ///< sender: CLIP_OFFER sent, waiting for CLIP_ACCEPT
+    Offering,      ///< sender: CLIP_OFFER sent, waiting for CLIP_ACCEPT
     OfferReceived, ///< receiver: CLIP_OFFER parsed, waiting for the user
-    Sending,      ///< sender: streaming chunks
-    AwaitingAck,  ///< sender: CLIP_COMPLETE sent, waiting for CLIP_DONE
-    Receiving,    ///< receiver: writing chunks
+    Sending,       ///< sender: streaming chunks
+    AwaitingAck,   ///< sender: CLIP_COMPLETE sent, waiting for CLIP_DONE
+    Receiving,     ///< receiver: writing chunks
     Completed,
     Cancelled,
     Failed,
@@ -144,6 +152,15 @@ public:
   void setOfferTimeout(int ms);
   /// Stop queueing new chunks above this many bytes in flight.
   void setHighWaterMark(int bytes);
+  /// Stamped onto the next CLIP_OFFER. Unknown values are treated as "clipboard".
+  void setOutgoingIntent(const QString &intent)
+  {
+    m_outgoingIntent = intent.isEmpty() ? QStringLiteral("clipboard") : intent;
+  }
+  QString outgoingIntent() const
+  {
+    return m_outgoingIntent;
+  }
 
   // --------------------------------------------------------------- status
   State state() const
@@ -207,7 +224,8 @@ private Q_SLOTS:
   void pump();
 
 private:
-  struct DestPath {
+  struct DestPath
+  {
     QString finalPath;
     QString partPath;
   };
@@ -230,8 +248,7 @@ private:
   static QString uniqueDestinationPath(const QString &desired);
 
   // ---- staging
-  bool appendEntry(const QString &relPath, qint64 size, bool isDirectory, const QString &localPath,
-                   qint64 *totalBytes);
+  bool appendEntry(const QString &relPath, qint64 size, bool isDirectory, const QString &localPath, qint64 *totalBytes);
   bool stagePaths(const QStringList &paths);
 
   // ---- sender
@@ -269,6 +286,7 @@ private:
 
   QString m_transferId;
   QString m_peerName;
+  QString m_outgoingIntent = QStringLiteral("clipboard");
   QList<ClipFileEntry> m_entries;
   QStringList m_entryLocalPaths; ///< sender only, index-aligned with m_entries
   QList<DestPath> m_destPaths;   ///< receiver only, index-aligned with m_entries

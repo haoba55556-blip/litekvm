@@ -7,6 +7,13 @@
  */
 
 #include "arch/win32/ArchNetworkWinsock.h"
+#include "arch/LowLatencySocket.h"
+
+#include <mswsock.h>
+
+#ifndef SIO_TCP_SET_ACK_FREQUENCY
+#define SIO_TCP_SET_ACK_FREQUENCY _WSAIOW(IOC_VENDOR, 23)
+#endif
 #include "arch/Arch.h"
 #include "arch/ArchException.h"
 #include "arch/IArchMultithread.h"
@@ -609,7 +616,42 @@ bool ArchNetworkWinsock::setNoDelayOnSocket(ArchSocket s, bool noDelay)
     throwError(getsockerror_winsock());
   }
 
+  if (noDelay)
+    setQuickAckOnSocket(s);
+
   return (oflag != 0);
+}
+
+std::string ArchNetworkWinsock::getSocketPeerAddress(ArchSocket s)
+{
+  if (!s)
+    return {};
+  sockaddr_storage storage{};
+  int length = sizeof(storage);
+  if (getpeername(s->m_socket, reinterpret_cast<sockaddr *>(&storage), &length) != 0)
+    return {};
+  char text[INET6_ADDRSTRLEN] = {};
+  if (storage.ss_family == AF_INET) {
+    inet_ntop(AF_INET, &reinterpret_cast<sockaddr_in *>(&storage)->sin_addr, text, sizeof(text));
+  } else if (storage.ss_family == AF_INET6) {
+    inet_ntop(AF_INET6, &reinterpret_cast<sockaddr_in6 *>(&storage)->sin6_addr, text, sizeof(text));
+  }
+  return text;
+}
+
+void ArchNetworkWinsock::setQuickAckOnSocket(ArchSocket s)
+{
+  if (!s)
+    return;
+  // Sticky. 1 = ACK every segment, which is Windows' delayed-ACK off switch.
+  // Unsupported stacks return an error; the mouse stream still works with
+  // TCP_NODELAY alone, so this must not throw.
+  int frequency = LowLatencySocketPolicy::kWindowsAckFrequency;
+  DWORD bytesReturned = 0;
+  WSAIoctl(
+      s->m_socket, SIO_TCP_SET_ACK_FREQUENCY, &frequency, sizeof(frequency), nullptr, 0, &bytesReturned, nullptr,
+      nullptr
+  );
 }
 
 void ArchNetworkWinsock::setKeepAliveOnSocket(ArchSocket s, bool keepAlive)

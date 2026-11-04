@@ -166,6 +166,12 @@ void TCPSocket::write(const void *buffer, uint32_t n)
   }
 }
 
+void TCPSocket::refreshQuickAck()
+{
+  if (m_socket != nullptr)
+    ARCH->setQuickAckOnSocket(m_socket);
+}
+
 void TCPSocket::flush()
 {
   Lock lock(&m_mutex);
@@ -243,6 +249,13 @@ uint32_t TCPSocket::getSize() const
 {
   Lock lock(&m_mutex);
   return m_inputBuffer.getSize();
+}
+
+std::string TCPSocket::peerHost() const
+{
+  if (m_socket == nullptr)
+    return {};
+  return ARCH->getSocketPeerAddress(m_socket);
 }
 
 void TCPSocket::connect(const NetworkAddress &addr)
@@ -324,6 +337,7 @@ TCPSocket::JobResult TCPSocket::doRead()
     if (wasEmpty) {
       sendEvent(EventTypes::StreamInputReady);
     }
+    refreshQuickAck();
   } else {
     // remote write end of stream hungup.  our input side
     // has therefore shutdown but don't flush our buffer

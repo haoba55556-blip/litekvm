@@ -1,12 +1,14 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM mDNS advertiser — raw multicast-DNS announce on UDP/5353.
 #pragma once
 
-#include "DiscoveryService.h"
 #include "DeviceIdentity.h"
+#include "DiscoveryService.h"
 
 #include <QHostAddress>
 #include <QObject>
+#include <QTimer>
 #include <QUdpSocket>
 
 #include <vector>
@@ -17,13 +19,28 @@ namespace litekvm {
  * @brief Publishes this device as _litekvm._tcp.local. via raw mDNS.
  * Qt 6.8 lacks a public publish API, hence the hand-rolled responder.
  */
-class MdnsAdvertiser : public QObject {
+class MdnsAdvertiser : public QObject
+{
   Q_OBJECT
 
 public:
-  enum class PeerState { Pairable, Busy };
+  enum class PeerState
+  {
+    Pairable,
+    Busy
+  };
+
+  /// Unsolicited announce period. One shot at startup is not enough: the
+  /// peer may not be listening yet, and Windows often owns UDP/5353 so we
+  /// cannot rely on hearing their query.
+  static constexpr int kAnnounceIntervalMs = 2000;
 
   explicit MdnsAdvertiser(QObject *parent = nullptr);
+
+  /// True only for a DNS query that names LiteKVM. Responses (QR bit set,
+  /// including our own announcements) must not be answered — fan-out would
+  /// otherwise echo every reply back out every NIC.
+  static bool shouldAnswer(const QByteArray &datagram);
 
   bool start(const DeviceIdentity &self, uint16_t pairingPort, PeerState state = PeerState::Pairable);
   void setState(PeerState state);
@@ -41,6 +58,7 @@ private:
   static std::vector<QHostAddress> allLocalAddresses();
 
   QUdpSocket m_socket;
+  QTimer m_announceTimer;
   const DeviceIdentity *m_self = nullptr;
   uint16_t m_pairingPort = 25901;
   PeerState m_state = PeerState::Pairable;

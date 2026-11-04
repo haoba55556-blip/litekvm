@@ -1,15 +1,16 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM trust store — persisted list of paired devices.
 //
 // Spec: docs/discovery-pairing-spec.md §6 (litekvm-design repo)
 #include "TrustStore.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QDateTime>
 
 namespace litekvm {
 
@@ -106,6 +107,22 @@ const TrustEntry *TrustStore::find(const QString &deviceId) const
   return nullptr;
 }
 
+bool TrustStore::updateLastAddr(const QString &deviceId, const QString &addr)
+{
+  if (deviceId.isEmpty() || addr.isEmpty())
+    return false;
+  for (auto &entry : m_entries) {
+    if (entry.deviceId != deviceId)
+      continue;
+    if (entry.lastAddr == addr)
+      return false;
+    entry.lastAddr = addr;
+    entry.lastSeen = QDateTime::currentDateTimeUtc();
+    return save();
+  }
+  return false;
+}
+
 void TrustStore::upsert(const TrustEntry &entry)
 {
   for (auto &e : m_entries) {
@@ -122,9 +139,10 @@ void TrustStore::upsert(const TrustEntry &entry)
 bool TrustStore::remove(const QString &deviceId)
 {
   const auto before = m_entries.size();
-  m_entries.erase(std::remove_if(m_entries.begin(), m_entries.end(),
-                                 [&](const TrustEntry &e) { return e.deviceId == deviceId; }),
-                  m_entries.end());
+  m_entries.erase(
+      std::remove_if(m_entries.begin(), m_entries.end(), [&](const TrustEntry &e) { return e.deviceId == deviceId; }),
+      m_entries.end()
+  );
   if (m_entries.size() != before) {
     save();
     return true;

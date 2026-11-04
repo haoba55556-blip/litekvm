@@ -528,6 +528,13 @@
    </layout>
   </widget>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>deskflow::gui::NearbyPanel</class>
+   <extends>QWidget</extends>
+   <header>NearbyPanel.h</header>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>

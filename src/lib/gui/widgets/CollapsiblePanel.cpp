@@ -1,14 +1,14 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // CollapsiblePanel — clickable header + expandable content, instant toggle.
 
 #include "CollapsiblePanel.h"
 
 namespace deskflow::gui {
 
-CollapsiblePanel::CollapsiblePanel(const QString &title, QWidget *content,
-                                   QWidget *parent, int badgeCount)
-    : QWidget(parent), m_content(content)
+CollapsiblePanel::CollapsiblePanel(const QString &title, QWidget *content, QWidget *parent, int badgeCount)
+    : QWidget(parent),
+      m_content(content)
 {
   // --- outer vertical layout ---
   auto *outerLayout = new QVBoxLayout(this);
@@ -30,16 +30,16 @@ CollapsiblePanel::CollapsiblePanel(const QString &title, QWidget *content,
   headerLayout->addWidget(m_arrowLabel);
 
   m_titleLabel = new QLabel(title, m_headerBtn);
-  m_titleLabel->setStyleSheet(
-      QStringLiteral("color: #E7EAEE; font-weight: bold; font-size: 13px;"));
+  m_titleLabel->setStyleSheet(QStringLiteral("color: #E7EAEE; font-weight: bold; font-size: 13px;"));
   headerLayout->addWidget(m_titleLabel);
 
   headerLayout->addStretch();
 
   m_badgeLabel = new QLabel(m_headerBtn);
-  m_badgeLabel->setStyleSheet(
-      QStringLiteral("color: #8E95A2; font-size: 11px; padding: 1px 6px;"
-                     "background-color: #1F242B; border-radius: 8px;"));
+  m_badgeLabel->setStyleSheet(QStringLiteral(
+      "color: #8E95A2; font-size: 11px; padding: 1px 6px;"
+      "background-color: #1F242B; border-radius: 8px;"
+  ));
   if (badgeCount >= 0)
     m_badgeLabel->setText(QString::number(badgeCount));
   else
@@ -47,10 +47,11 @@ CollapsiblePanel::CollapsiblePanel(const QString &title, QWidget *content,
   headerLayout->addWidget(m_badgeLabel);
 
   // Style the header bar (FlatToolButton look)
-  m_headerBtn->setStyleSheet(
-      QStringLiteral("QPushButton { background-color: #14171C; border: none;"
-                     "  border-radius: 8px; padding: 0px; text-align: left; }"
-                     "QPushButton:hover { background-color: #1B2027; }"));
+  m_headerBtn->setStyleSheet(QStringLiteral(
+      "QPushButton { background-color: #14171C; border: none;"
+      "  border-radius: 8px; padding: 0px; text-align: left; }"
+      "QPushButton:hover { background-color: #1B2027; }"
+  ));
 
   outerLayout->addWidget(m_headerBtn);
 

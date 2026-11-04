@@ -94,6 +94,8 @@ Q_SIGNALS:
   void retryIn(int seconds);
   void peerFingerprint(const QString &fingerprint);
   void missingKeyboardLayouts(const QString &layouts);
+  /// screen name + numeric address of the live core socket's peer
+  void peerSocketAddress(const QString &screenName, const QString &host);
 
 private Q_SLOTS:
   void onProcessFinished(int exitCode, QProcess::ExitStatus);
@@ -105,7 +107,7 @@ private Q_SLOTS:
 private:
   void startForegroundProcess(const QStringList &args);
   void startProcessFromDaemon();
-  void stopForegroundProcess() const;
+  void stopForegroundProcess();
   void stopProcessFromDaemon();
   QPair<bool, QString> persistServerConfig() const;
   void setConnectionState(ConnectionState state);
@@ -133,6 +135,7 @@ private:
   deskflow::gui::ipc::DaemonIpcClient *m_daemonIpcClient = nullptr;
   FileTail *m_daemonFileTail = nullptr;
   QProcess *m_process = nullptr;
+  bool m_elevatedLaunch = false;
   QString m_appPath;
 };
 

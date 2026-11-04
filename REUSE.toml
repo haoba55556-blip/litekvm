@@ -20,6 +20,7 @@ path = [
  , "docs/**"
  , "deploy/linux/flatpak/**"
  , "deploy/linux/org.deskflow.deskflow.metainfo.xml"
+ , "deploy/linux/io.github.litekvm.litekvm.metainfo.xml"
  , "deploy/windows/wix-patch.xml.in"
  , "src/apps/deskflow-client/deskflow-client.exe.manifest"
  , "src/apps/deskflow-core/deskflow-core.exe.manifest"

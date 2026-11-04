@@ -11,6 +11,14 @@ install(
   DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
 )
 
+# Flatpak only exports a desktop file whose name matches its app-id.
+if(NOT "${CMAKE_PROJECT_REV_FQDN}" STREQUAL "org.deskflow.deskflow")
+  install(
+    FILES ${MY_DIR}/org.deskflow.deskflow.desktop
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
+  )
+endif()
+
 # Install our icon
 install(FILES ${MY_DIR}/org.deskflow.deskflow.png DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/512x512/apps/)
 
@@ -25,6 +33,15 @@ install(
   FILES ${MY_DIR}/${CMAKE_PROJECT_REV_FQDN}.metainfo.xml
   DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo/
 )
+
+# Flatpak's app-id is still org.deskflow.deskflow. The linter looks for that
+# metainfo name even when CMAKE_PROJECT_REV_FQDN points at the LiteKVM id.
+if(NOT "${CMAKE_PROJECT_REV_FQDN}" STREQUAL "org.deskflow.deskflow")
+  install(
+    FILES ${MY_DIR}/org.deskflow.deskflow.metainfo.xml
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo/
+  )
+endif()
 
 # Prepare PKGBUILD for Arch Linux
 configure_file(

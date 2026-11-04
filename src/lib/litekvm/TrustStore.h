@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM trust store — persisted list of paired devices.
 //
 // Spec: docs/discovery-pairing-spec.md §6 (litekvm-design repo)
@@ -14,7 +15,8 @@
 
 namespace litekvm {
 
-struct TrustEntry {
+struct TrustEntry
+{
   QString deviceId;
   QByteArray pubkey; // raw Ed25519 public key (32 bytes)
   QString name;
@@ -28,7 +30,8 @@ struct TrustEntry {
  * @brief JSON-persisted list of paired devices. Reconnect trusts device_id,
  * never IP addresses.
  */
-class TrustStore {
+class TrustStore
+{
 public:
   explicit TrustStore(const QString &filePath = {});
 
@@ -38,6 +41,8 @@ public:
   bool contains(const QString &deviceId) const;
   const TrustEntry *find(const QString &deviceId) const;
   void upsert(const TrustEntry &entry);
+  /// Write lastAddr when it actually changed. Returns true if the file was updated.
+  bool updateLastAddr(const QString &deviceId, const QString &addr);
   bool remove(const QString &deviceId);
   const std::vector<TrustEntry> &entries() const;
 

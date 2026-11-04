@@ -22,6 +22,10 @@
 #include "gui/core/NetworkMonitor.h"
 #include "net/Fingerprint.h"
 
+namespace litekvm {
+struct DiscoveredPeer;
+}
+
 #ifdef Q_OS_MACOS
 #include "gui/OSXHelpers.h"
 #endif
@@ -41,6 +45,7 @@ class MainWindow;
 namespace deskflow::gui {
 class ClipTransferDialog;
 class CollapsiblePanel;
+class EdgeFileDrop;
 class LiteKvmController;
 class NearbyPanel;
 namespace ipc {
@@ -160,9 +165,15 @@ private:
   void setupFileClipboard();
   void applyFileClipboardSettings();
   void requestSendFiles();
-  void sendFiles(const QStringList &paths, bool fromClipboard);
-  void onLocalFilesCopied(const QStringList &paths);
-  void onFileOfferReceived(const QString &peerName, const QStringList &fileNames, qint64 totalBytes, int fileCount);
+  void sendFiles(const QStringList &paths, bool fromClipboard, const QString &intent = QStringLiteral("clipboard"));
+  void onLocalFilesCopied(const QStringList &paths, const QString &intent);
+  void onFileOfferReceived(
+      const QString &peerName, const QStringList &fileNames, qint64 totalBytes, int fileCount, const QString &intent
+  );
+  void onAutoSessionRequested(const litekvm::DiscoveredPeer &peer);
+  void onEdgeFilesDragged(const QStringList &paths);
+  void startRemoteDrag(const QStringList &paths);
+  bool askVisible(const QString &title, const QString &text, const QString &detail = QString());
   void onFileProgressChanged(quint64 bytesDone, quint64 bytesTotal, bool outgoing);
   void onFileTransferCompleted(const QStringList &localPaths, bool outgoing, const QString &transferId);
   void onFileTransferFailed(const QString &message, bool outgoing);
@@ -224,6 +235,10 @@ private:
   qint64 m_clipTransferTotalBytes = 0;
   QString m_lastCopiedPaths;
   QElapsedTimer m_lastCopiedAt;
+  QString m_incomingClipIntent;
+  QString m_autoConnectPeerId;
+  bool m_autoConnectHold = false;
+  deskflow::gui::EdgeFileDrop *m_edgeDrop = nullptr;
 
   // Window Menu
   QMenu *m_menuFile = nullptr;

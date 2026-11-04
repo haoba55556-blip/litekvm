@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 #pragma once
 
 #include <QHBoxLayout>
@@ -23,14 +25,19 @@ class CollapsiblePanel : public QWidget
   Q_OBJECT
 
 public:
-  explicit CollapsiblePanel(const QString &title, QWidget *content,
-                            QWidget *parent = nullptr, int badgeCount = -1);
+  explicit CollapsiblePanel(const QString &title, QWidget *content, QWidget *parent = nullptr, int badgeCount = -1);
 
   void setExpanded(bool expanded);
-  bool isExpanded() const { return m_expanded; }
+  bool isExpanded() const
+  {
+    return m_expanded;
+  }
   void setBadgeCount(int count);
 
-  QWidget *contentWidget() const { return m_content; }
+  QWidget *contentWidget() const
+  {
+    return m_content;
+  }
 
 Q_SIGNALS:
   void expandedChanged(bool expanded);

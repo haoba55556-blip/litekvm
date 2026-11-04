@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // ClipTransferDialog — 跨机文件剪贴板的传输进度窗口（进度条 + 速度/剩余时间 + 取消）。
 //
 // 计划（docs/plans/2026-08-25-litekvm-mvp.md Phase 4.1）要求 >100MB 的传输显示

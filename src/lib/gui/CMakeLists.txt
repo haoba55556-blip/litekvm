@@ -120,6 +120,8 @@ add_library(${target} STATIC
   widgets/LogDock.h
   widgets/CollapsiblePanel.cpp
   widgets/CollapsiblePanel.h
+  widgets/EdgeFileDrop.cpp
+  widgets/EdgeFileDrop.h
   widgets/LogWidget.h
   widgets/LogWidget.cpp
   widgets/NewScreenWidget.cpp

@@ -14,6 +14,7 @@
 #include "deskflow/Clipboard.h"
 #include "deskflow/ClipboardChunk.h"
 #include "deskflow/DeskflowException.h"
+#include "deskflow/MouseMotionCoalescer.h"
 #include "deskflow/OptionTypes.h"
 #include "deskflow/ProtocolTypes.h"
 #include "deskflow/ProtocolUtil.h"
@@ -120,6 +121,7 @@ void ServerProxy::handleData()
     n = m_stream->read(code, 4);
   }
 
+  // Tail of a burst that was coalesced because more bytes were already buffered.
   flushCompressedMouse();
 }
 
@@ -208,6 +210,7 @@ ServerProxy::ConnectionResult ServerProxy::parseHandshakeMessage(const uint8_t *
 ServerProxy::ConnectionResult ServerProxy::parseMessage(const uint8_t *code)
 {
   using enum ConnectionResult;
+  m_suppressNoop = false;
 
   if (memcmp(code, kMsgDMouseMove, 4) == 0) {
     mouseMove();
@@ -322,14 +325,12 @@ ServerProxy::ConnectionResult ServerProxy::parseMessage(const uint8_t *code)
     return Unknown;
   }
 
-  // send a reply.  this is intended to work around a delay when
-  // running a linux server and an OS X (any BSD?) client.  the
-  // client waits to send an ACK (if the system control flag
-  // net.inet.tcp.delayed_ack is 1) in hopes of piggybacking it
-  // on a data packet.  we provide that packet here.  i don't
-  // know why a delayed ACK should cause the server to wait since
-  // TCP_NODELAY is enabled.
-  ProtocolUtil::writef(m_stream, kMsgCNoop);
+  // Reply with a no-op so a delayed ACK has a packet to ride on. Mouse
+  // motion is the exception: one CNOP per move doubles the packet rate and
+  // makes the remote cursor stutter. TCP_NODELAY plus quick-ack covers that
+  // path. Buttons and keys still send the no-op.
+  if (!m_suppressNoop)
+    ProtocolUtil::writef(m_stream, kMsgCNoop);
 
   return Okay;
 }
@@ -382,11 +383,27 @@ void ServerProxy::onClipboardChanged(ClipboardID id, const IClipboard *clipboard
 
 void ServerProxy::flushCompressedMouse()
 {
-  if (m_compressMouse) {
+  int32_t x = 0;
+  int32_t y = 0;
+  if (m_mouseCoalescer.takeAbsolute(x, y)) {
+    m_compressMouse = false;
+    m_xMouse = x;
+    m_yMouse = y;
+    m_client->mouseMove(x, y);
+  } else if (m_compressMouse) {
     m_compressMouse = false;
     m_client->mouseMove(m_xMouse, m_yMouse);
   }
-  if (m_compressMouseRelative) {
+
+  int32_t dx = 0;
+  int32_t dy = 0;
+  if (m_mouseCoalescer.takeRelative(dx, dy)) {
+    m_compressMouseRelative = false;
+    m_dxMouse = 0;
+    m_dyMouse = 0;
+    if (dx != 0 || dy != 0)
+      m_client->mouseRelativeMove(dx, dy);
+  } else if (m_compressMouseRelative) {
     m_compressMouseRelative = false;
     m_client->mouseRelativeMove(m_dxMouse, m_dyMouse);
     m_dxMouse = 0;
@@ -520,6 +537,7 @@ void ServerProxy::enter()
   m_compressMouseRelative = false;
   m_dxMouse = 0;
   m_dyMouse = 0;
+  m_mouseCoalescer.clear();
   m_seqNum = seqNum;
   m_serverLayout = "";
   m_isUserNotifiedAboutLayoutSyncError = false;
@@ -683,64 +701,34 @@ void ServerProxy::mouseUp()
 void ServerProxy::mouseMove()
 {
   // parse
-  bool ignore;
   int16_t x;
   int16_t y;
   ProtocolUtil::readf(m_stream, kMsgDMouseMove + 4, &x, &y);
+  m_suppressNoop = true;
+  if (m_ignoreMouse)
+    return;
 
-  // note if we should ignore the move
-  ignore = m_ignoreMouse;
-
-  // compress mouse motion events if more input follows
-  if (!ignore && !m_compressMouse && m_stream->isReady()) {
-    m_compressMouse = true;
-  }
-
-  // if compressing then ignore the motion but record it
-  if (m_compressMouse) {
-    m_compressMouseRelative = false;
-    ignore = true;
-    m_xMouse = x;
-    m_yMouse = y;
-    m_dxMouse = 0;
-    m_dyMouse = 0;
-  }
-  LOG_VERBOSE("recv mouse move %d,%d", x, y);
-
-  // forward
-  if (!ignore) {
-    m_client->mouseMove(x, y);
-  }
+  m_xMouse = x;
+  m_yMouse = y;
+  m_mouseCoalescer.addAbsolute(x, y);
+  // Apply now unless the next message is already buffered. No timer: the
+  // Windows tick is ~15.6 ms and was quantizing every move.
+  if (shouldApplyMouseNow(m_stream->isReady()))
+    flushCompressedMouse();
 }
 
 void ServerProxy::mouseRelativeMove()
 {
-  // parse
-  bool ignore;
   int16_t dx;
   int16_t dy;
   ProtocolUtil::readf(m_stream, kMsgDMouseRelMove + 4, &dx, &dy);
+  m_suppressNoop = true;
+  if (m_ignoreMouse)
+    return;
 
-  // note if we should ignore the move
-  ignore = m_ignoreMouse;
-
-  // compress mouse motion events if more input follows
-  if (!ignore && !m_compressMouseRelative && m_stream->isReady()) {
-    m_compressMouseRelative = true;
-  }
-
-  // if compressing then ignore the motion but record it
-  if (m_compressMouseRelative) {
-    ignore = true;
-    m_dxMouse += dx;
-    m_dyMouse += dy;
-  }
-  LOG_VERBOSE("recv mouse relative move %d,%d", dx, dy);
-
-  // forward
-  if (!ignore) {
-    m_client->mouseRelativeMove(dx, dy);
-  }
+  m_mouseCoalescer.addRelative(dx, dy);
+  if (shouldApplyMouseNow(m_stream->isReady()))
+    flushCompressedMouse();
 }
 
 void ServerProxy::mouseWheel()

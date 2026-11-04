@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM cross-machine file clipboard — the local clipboard end.
 //
 // Spec: docs/plans/2026-08-25-litekvm-mvp.md Phase 4 Task 4.3
@@ -22,10 +23,13 @@
 // treated as "no change" instead of an error.
 #pragma once
 
+#include <QByteArray>
 #include <QList>
 #include <QObject>
 #include <QString>
 #include <QStringList>
+
+class QImage;
 
 class QClipboard;
 class QMimeData;
@@ -55,12 +59,15 @@ namespace litekvm {
  * --no-gui) the object still classifies mime data and just never touches the
  * OS clipboard.
  */
-class ClipboardFileBridge : public QObject {
+class ClipboardFileBridge : public QObject
+{
   Q_OBJECT
 
 public:
   /// How long after a self-write the guard keeps matching echoes (ms).
   static constexpr int kDefaultSelfWriteGuardMs = 3000;
+  /// Same bitmap copied twice (Explorer notifies again ~2s later) is one offer.
+  static constexpr int kDefaultImageDedupeMs = 5000;
   /// Floor/ceiling for setSelfWriteGuardMs().
   static constexpr int kMinSelfWriteGuardMs = 250;
   static constexpr int kMaxSelfWriteGuardMs = 60'000;
@@ -124,6 +131,36 @@ public:
   /// the comparison matches byte for byte.
   static QStringList normalizedPaths(const QStringList &localPaths);
 
+  /// What a clipboard or drag payload should become on the wire.
+  struct CapturedPayload
+  {
+    QStringList paths;
+    /// "clipboard" (files/folders) or "image" (bitmap written to @p paths).
+    QString intent;
+  };
+
+  /// Directory used when a copied/dragged bitmap is written to a PNG so the
+  /// file-transfer channel can carry it.
+  static QString imageDropDirectory();
+
+  /// Files/folders from URLs, text/uri-list, or a Windows CF_HDROP blob.
+  /// A bitmap with no file list is written into @p imageDirectory and returned
+  /// with intent "image". Empty paths means "not a file or image payload".
+  static CapturedPayload capture(const QMimeData *mime, const QString &imageDirectory);
+
+  /// DROPFILES (CF_HDROP) -> native paths. @p bytes is the raw clipboard
+  /// format, little-endian, ANSI or UTF-16 as the fWide flag says.
+  static QStringList parseWindowsDropFiles(const QByteArray &bytes);
+
+  /// Stable hash of pixel bytes. Empty when @p image is null.
+  static QByteArray imageContentHash(const QImage &image);
+
+  /// Test seam. 0 disables image dedupe.
+  void setImageDedupeMsForTest(int ms)
+  {
+    m_imageDedupeMs = ms;
+  }
+
   // ------------------------------------------------------------- watching
 
   /// True when the watched clipboard currently holds a set of local files.
@@ -162,6 +199,11 @@ public:
    * local copy.
    */
   bool putFilesOnClipboard(const QStringList &localPaths);
+
+  /// Same as putFilesOnClipboard(), and when there is exactly one image file
+  /// also places the bitmap on the clipboard so Ctrl+V pastes into editors
+  /// that want an image rather than a file drop.
+  bool putFilesOnClipboard(const QStringList &localPaths, bool includeImageData);
 
   // ---------------------------------------------------------- loop guard
 
@@ -203,8 +245,10 @@ public Q_SLOTS:
   void armSelfWriteGuard(const QStringList &writtenPaths);
 
 Q_SIGNALS:
-  /// The user copied local files — the caller decides whether to send them.
-  void localFilesCopied(const QStringList &localPaths);
+  /// The user copied local files or an image.
+  /// @p intent is "clipboard" for files/folders and "image" for a bitmap
+  /// (screenshot, copied picture) that was saved to a temp file first.
+  void localFilesCopied(const QStringList &localPaths, const QString &intent);
   /// isFileClipboard() flipped (UI can enable/disable a "send files" action).
   void fileClipboardStateChanged(bool isFileClipboard);
 
@@ -220,6 +264,11 @@ private:
   QStringList m_localFiles;
   bool m_isFileClipboard = false;
   bool m_watchEnabled = true;
+  bool m_imageEchoArmed = false;
+  int m_readAttempts = 0;
+  int m_imageDedupeMs = kDefaultImageDedupeMs;
+  QByteArray m_lastImageHash;
+  qint64 m_lastImageAtMs = 0;
   int m_guardMs = kDefaultSelfWriteGuardMs;
 };
 

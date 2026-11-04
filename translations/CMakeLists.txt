@@ -44,7 +44,7 @@ if (NOT BUILD_OSX_BUNDLE)
   )
 else()
   #when making the bundle copy our translation into the bundle
-  set(BUNDLE_TR_DIR $<TARGET_BUNDLE_CONTENT_DIR:${CMAKE_PROJECT_PROPER_NAME}>/Resources/translations)
+  set(BUNDLE_TR_DIR $<TARGET_BUNDLE_CONTENT_DIR:${OSX_BUNDLE_NAME}>/Resources/translations)
 
   # find the qt translation files needed to copy into the bundle
   get_target_property(lupdate_executable Qt6::lupdate IMPORTED_LOCATION)

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 #include "../../lib/litekvm/DeviceIdentity.h"
 #include "../../lib/litekvm/PairingCrypto.h"
 #include "../../lib/litekvm/TrustStore.h"
@@ -9,7 +9,8 @@
 
 using namespace litekvm;
 
-class LiteKvmTests : public QObject {
+class LiteKvmTests : public QObject
+{
   Q_OBJECT
 
 private Q_SLOTS:

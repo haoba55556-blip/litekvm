@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // Integration test: two real PairingService instances (server B + client A)
 // pair over loopback TCP using the spec §4 message flow.
 #include "../../lib/litekvm/DeviceIdentity.h"
@@ -13,11 +13,13 @@
 
 using namespace litekvm;
 
-class PairingIntegrationTests : public QObject {
+class PairingIntegrationTests : public QObject
+{
   Q_OBJECT
 
   // helper: create isolated identity+store
-  struct Node {
+  struct Node
+  {
     QTemporaryDir dir;
     std::optional<DeviceIdentity> identity;
     std::unique_ptr<TrustStore> store;
@@ -47,28 +49,25 @@ private Q_SLOTS:
     // captured signals
     QString challengeCode;
     QString challengePeerName;
-    connect(&client, &PairingService::pairChallenge,
-            [&](const QString &name, const QString &, const QString &code) {
-              challengePeerName = name;
-              challengeCode = code;
-              // simulate the user typing the code shown on the server screen
-              client.submitPairCode(code);
-            });
+    connect(&client, &PairingService::pairChallenge, [&](const QString &name, const QString &, const QString &code) {
+      challengePeerName = name;
+      challengeCode = code;
+      // simulate the user typing the code shown on the server screen
+      client.submitPairCode(code);
+    });
 
     QSemaphore succeeded;
     QString pairedIdOnClient;
-    connect(&client, &PairingService::pairingSucceeded,
-            [&](const QString &deviceId, const QString &) {
-              pairedIdOnClient = deviceId;
-              succeeded.release();
-            });
+    connect(&client, &PairingService::pairingSucceeded, [&](const QString &deviceId, const QString &) {
+      pairedIdOnClient = deviceId;
+      succeeded.release();
+    });
     QString pairedIdOnServer;
     QSemaphore serverSucceeded;
-    connect(&server, &PairingService::pairingSucceeded,
-            [&](const QString &deviceId, const QString &) {
-              pairedIdOnServer = deviceId;
-              serverSucceeded.release();
-            });
+    connect(&server, &PairingService::pairingSucceeded, [&](const QString &deviceId, const QString &) {
+      pairedIdOnServer = deviceId;
+      serverSucceeded.release();
+    });
 
     PairingService::Error clientError = PairingService::Error::Timeout;
     QSemaphore failed;
@@ -96,10 +95,8 @@ private Q_SLOTS:
     QVERIFY(serverNode.store->contains(clientNode.identity->deviceId()));
     QCOMPARE(pairedIdOnClient, serverNode.identity->deviceId());
     QCOMPARE(pairedIdOnServer, clientNode.identity->deviceId());
-    QCOMPARE(serverNode.store->find(clientNode.identity->deviceId())->name,
-             clientNode.identity->name());
-    QCOMPARE(clientNode.store->find(serverNode.identity->deviceId())->name,
-             serverNode.identity->name());
+    QCOMPARE(serverNode.store->find(clientNode.identity->deviceId())->name, clientNode.identity->name());
+    QCOMPARE(clientNode.store->find(serverNode.identity->deviceId())->name, serverNode.identity->name());
   }
 
   void wrongCodeFailsAndCounts()

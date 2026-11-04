@@ -235,6 +235,23 @@ public:
   */
   virtual bool setNoDelayOnSocket(ArchSocket, bool noDelay) = 0;
 
+  //! Ask the stack to ACK small segments immediately.
+  /*!
+  Linux clears TCP_QUICKACK after every receive, so the socket calls this
+  again after each successful read. Windows sets SIO_TCP_SET_ACK_FREQUENCY
+  (sticky). The default implementation is a no-op for stacks without either.
+  Failures are ignored: a missing option must not drop the connection.
+  */
+  virtual void setQuickAckOnSocket(ArchSocket)
+  {
+  }
+
+  //! Numeric peer address of a connected socket, or empty.
+  virtual std::string getSocketPeerAddress(ArchSocket)
+  {
+    return {};
+  }
+
   //! Turn keep-alive on or off on socket
   /*!
   Set socket to use keep-alive (true) or not (false).

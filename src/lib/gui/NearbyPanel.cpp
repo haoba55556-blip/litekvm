@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // NearbyPanel — "附近的电脑" side panel: live mDNS peer list + pairing actions.
 #include "NearbyPanel.h"
 
@@ -87,10 +87,12 @@ void NearbyPanel::setController(LiteKvmController *controller)
   if (!m_controller)
     return;
 
-  connect(controller, &LiteKvmController::peerDiscovered, this,
-          [this](const litekvm::DiscoveredPeer &peer) { refreshRow(peer); });
-  connect(controller, &LiteKvmController::peerUpdated, this,
-          [this](const litekvm::DiscoveredPeer &peer) { refreshRow(peer); });
+  connect(controller, &LiteKvmController::peerDiscovered, this, [this](const litekvm::DiscoveredPeer &peer) {
+    refreshRow(peer);
+  });
+  connect(controller, &LiteKvmController::peerUpdated, this, [this](const litekvm::DiscoveredPeer &peer) {
+    refreshRow(peer);
+  });
   connect(controller, &LiteKvmController::peerOffline, this, [this](const QString &deviceId) {
     for (int row = 0; row < m_table->rowCount(); ++row) {
       if (m_table->item(row, 0)->data(Qt::UserRole).toString() == deviceId) {
@@ -122,8 +124,7 @@ void NearbyPanel::refreshRow(const litekvm::DiscoveredPeer &peer)
     m_table->insertRow(row);
   }
 
-  const QString stateText = peer.state == litekvm::DiscoveredPeer::State::Paired
-                                ? tr("已配对")
+  const QString stateText = peer.state == litekvm::DiscoveredPeer::State::Paired     ? tr("已配对")
                             : peer.state == litekvm::DiscoveredPeer::State::Pairable ? tr("可配对")
                                                                                      : tr("忙碌");
 
@@ -160,8 +161,7 @@ void NearbyPanel::onPairClicked()
   m_controller->startPairing(deviceId);
 }
 
-void NearbyPanel::onPairChallenge(const QString &peerName, const QString &fingerprint,
-                                  const QString &code)
+void NearbyPanel::onPairChallenge(const QString &peerName, const QString &fingerprint, const QString &code)
 {
   // The code shown here was derived locally; per spec the user types what is
   // displayed on the REMOTE screen. In practice both codes are identical when
@@ -169,9 +169,9 @@ void NearbyPanel::onPairChallenge(const QString &peerName, const QString &finger
   bool ok = false;
   const QString input = QInputDialog::getText(
       this, tr("输入配对码"),
-      tr("电脑「%1」正在配对。\n对方屏幕显示的 6 位数字是：\n\n（在下面输入对方屏幕上显示的数字）")
-          .arg(peerName),
-      QLineEdit::Normal, {}, &ok);
+      tr("电脑「%1」正在配对。\n对方屏幕显示的 6 位数字是：\n\n（在下面输入对方屏幕上显示的数字）").arg(peerName),
+      QLineEdit::Normal, {}, &ok
+  );
   if (!ok) {
     m_controller->cancelPairing();
     return;

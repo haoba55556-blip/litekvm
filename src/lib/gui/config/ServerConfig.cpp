@@ -171,8 +171,7 @@ int ServerConfig::dualSideNeighbourIndex(int idx, int deltaColumn, int deltaRow)
   // deskflow 的 links 段允许同一台屏幕的 left 与 right 指向同一目标屏幕，但 screens 段
   // 要求屏名唯一（重名时服务器拒绝启动），所以这里只补边、绝不新增屏幕。
   // 只有左侧/右侧（deltaColumn != 0）开放本特性；上下两侧的语义与网格不一致，暂不开放。
-  if (deltaColumn == 0 || idx < 0 || idx >= screens().size() || screens()[idx].isNull() ||
-      !screens()[idx].isServer())
+  if (deltaColumn == 0 || idx < 0 || idx >= screens().size() || screens()[idx].isNull() || !screens()[idx].isServer())
     return -1;
 
   // 反向的网格邻居 = 本屏的「锚点」屏；只有锚点屏自己勾选了双侧切入才镜像。

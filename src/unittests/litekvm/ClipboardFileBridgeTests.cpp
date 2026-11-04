@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // ClipboardFileBridge unit tests: what counts as a "copied local files" mime,
 // URL <-> path conversion (Chinese names, spaces, percent-encoding, Windows
 // separators) and the self-write loop guard that stops two machines from
@@ -11,6 +11,8 @@
 
 #include <QClipboard>
 #include <QDir>
+#include <QFileInfo>
+#include <QImage>
 #include <QMimeData>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -52,7 +54,8 @@ QStringList trickyPaths(const QString &dir)
 
 } // namespace
 
-class ClipboardFileBridgeTests : public QObject {
+class ClipboardFileBridgeTests : public QObject
+{
   Q_OBJECT
 
 private Q_SLOTS:
@@ -197,8 +200,9 @@ private Q_SLOTS:
 
     // a Windows drive-letter path must not be mistaken for a URL scheme
     const QString drivePath = QDir::toNativeSeparators(QStringLiteral("C:/Users/未命名/报告.txt"));
-    QCOMPARE(ClipboardFileBridge::normalizedPaths({QStringLiteral("C:/Users/未命名/报告.txt")}),
-             QStringList{drivePath});
+    QCOMPARE(
+        ClipboardFileBridge::normalizedPaths({QStringLiteral("C:/Users/未命名/报告.txt")}), QStringList{drivePath}
+    );
 
     QVERIFY(ClipboardFileBridge::normalizedPaths({}).isEmpty());
     QVERIFY(ClipboardFileBridge::normalizedPaths({QString(), QStringLiteral(" ")}).isEmpty());
@@ -433,6 +437,85 @@ private Q_SLOTS:
 
     // leave the developer's clipboard as close to how we found it as possible
     clip->setText(savedText);
+  }
+
+  void windowsDropFilesRoundTripAndImageCapture()
+  {
+    QByteArray ansi(20, '\0');
+    ansi[0] = 20; // pFiles
+    ansi.append("C:\\temp\\a.txt");
+    ansi.append('\0');
+    ansi.append('\0');
+    const QStringList ansiPaths = ClipboardFileBridge::parseWindowsDropFiles(ansi);
+    QCOMPARE(ansiPaths.size(), 1);
+    QVERIFY(ansiPaths.first().contains(QStringLiteral("a.txt")));
+
+    const QString widePath = QStringLiteral("C:\\temp\\报告.txt");
+    QByteArray wide(20, '\0');
+    wide[0] = 20;
+    wide[16] = 1; // fWide
+    const auto *utf16 = widePath.utf16();
+    wide.append(reinterpret_cast<const char *>(utf16), (widePath.size() + 1) * 2);
+    wide.append('\0');
+    wide.append('\0');
+    const QStringList widePaths = ClipboardFileBridge::parseWindowsDropFiles(wide);
+    QCOMPARE(widePaths.size(), 1);
+    QVERIFY(widePaths.first().contains(QStringLiteral("报告.txt")));
+
+    QMimeData uriOnly;
+    uriOnly.setData("text/uri-list", QByteArray("file:///tmp/clip.txt\r\n"));
+    const QStringList fromUri = ClipboardFileBridge::localPathsFromMime(&uriOnly);
+    QCOMPARE(fromUri.size(), 1);
+    QVERIFY(fromUri.first().contains(QStringLiteral("clip.txt")));
+
+    QImage image(4, 4, QImage::Format_ARGB32);
+    image.fill(Qt::red);
+    QMimeData bitmap;
+    bitmap.setImageData(image);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const auto captured = ClipboardFileBridge::capture(&bitmap, dir.path());
+    QCOMPARE(captured.intent, QStringLiteral("image"));
+    QCOMPARE(captured.paths.size(), 1);
+    QVERIFY(QFileInfo::exists(captured.paths.first()));
+
+    ClipboardFileBridge bridge;
+    bridge.setClipboard(nullptr);
+    QSignalSpy copied(&bridge, &ClipboardFileBridge::localFilesCopied);
+    QVERIFY(bridge.handleClipboardData(&bitmap));
+    QCOMPARE(copied.count(), 1);
+    QCOMPARE(copied.at(0).at(1).toString(), QStringLiteral("image"));
+  }
+
+  void sameBitmapIsOfferedOnce()
+  {
+    QImage image(6, 4, QImage::Format_ARGB32);
+    image.fill(Qt::blue);
+    QMimeData first;
+    first.setImageData(image);
+    QMimeData second;
+    second.setImageData(image);
+
+    ClipboardFileBridge bridge;
+    bridge.setClipboard(nullptr);
+    bridge.setImageDedupeMsForTest(5000);
+    QSignalSpy copied(&bridge, &ClipboardFileBridge::localFilesCopied);
+
+    QVERIFY(bridge.handleClipboardData(&first));
+    QVERIFY(!bridge.handleClipboardData(&second));
+    QCOMPARE(copied.count(), 1);
+
+    QImage other(6, 4, QImage::Format_ARGB32);
+    other.fill(Qt::green);
+    QVERIFY(ClipboardFileBridge::imageContentHash(image) != ClipboardFileBridge::imageContentHash(other));
+    QMimeData third;
+    third.setImageData(other);
+    QVERIFY(bridge.handleClipboardData(&third));
+    QCOMPARE(copied.count(), 2);
+
+    bridge.setImageDedupeMsForTest(0);
+    QVERIFY(bridge.handleClipboardData(&second));
+    QCOMPARE(copied.count(), 3);
   }
 };
 

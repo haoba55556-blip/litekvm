@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM mesh layout sync — control-plane TCP/25902.
 //
 // Spec: docs/mesh-layout-sync-spec.md §3-§4 (litekvm-design repo)
@@ -18,7 +19,8 @@
 
 namespace litekvm {
 
-struct ScreenRect {
+struct ScreenRect
+{
   QString deviceId;
   int x = 0;
   int y = 0;
@@ -26,9 +28,10 @@ struct ScreenRect {
   int h = 1080;
 };
 
-struct ScreenLayout {
-  qint64 rev = 0;        // monotonic, LWW key
-  QString updatedBy;     // device_id of last writer
+struct ScreenLayout
+{
+  qint64 rev = 0;    // monotonic, LWW key
+  QString updatedBy; // device_id of last writer
   std::vector<ScreenRect> screens;
 };
 
@@ -36,7 +39,8 @@ struct ScreenLayout {
  * @brief Full-mesh control plane: floods LAYOUT_UPDATE frames, converges by
  * rev (last-write-wins), pulls newcomers up to date on connect.
  */
-class LayoutSync : public QObject {
+class LayoutSync : public QObject
+{
   Q_OBJECT
 
 public:

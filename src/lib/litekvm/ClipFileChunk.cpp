@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM cross-machine file clipboard — Qt-free wire-format core.
 //
 // Spec: docs/plans/2026-08-25-litekvm-mvp.md Phase 4 Task 4.1
@@ -227,8 +228,7 @@ std::uint16_t be16Read(const std::uint8_t *p)
 
 std::uint32_t be32Read(const std::uint8_t *p)
 {
-  return (std::uint32_t(p[0]) << 24) | (std::uint32_t(p[1]) << 16) | (std::uint32_t(p[2]) << 8) |
-         std::uint32_t(p[3]);
+  return (std::uint32_t(p[0]) << 24) | (std::uint32_t(p[1]) << 16) | (std::uint32_t(p[2]) << 8) | std::uint32_t(p[3]);
 }
 
 std::uint64_t be64Read(const std::uint8_t *p)
@@ -261,8 +261,7 @@ void be64Write(std::uint8_t *p, std::uint64_t v)
 
 // ------------------------------------------------------------------ frames
 
-std::vector<std::uint8_t> encodeFrame(ClipFrameKind kind, const std::uint8_t *payload,
-                                     std::size_t payloadLen)
+std::vector<std::uint8_t> encodeFrame(ClipFrameKind kind, const std::uint8_t *payload, std::size_t payloadLen)
 {
   const bool isControl = kind == ClipFrameKind::Control;
   const std::size_t maxPayload = isControl ? kClipMaxControlPayload : kClipMaxDataPayload;
@@ -286,12 +285,11 @@ std::vector<std::uint8_t> encodeFrame(ClipFrameKind kind, const std::uint8_t *pa
 
 std::vector<std::uint8_t> encodeControlFrame(std::string_view jsonUtf8)
 {
-  return encodeFrame(ClipFrameKind::Control, reinterpret_cast<const std::uint8_t *>(jsonUtf8.data()),
-                     jsonUtf8.size());
+  return encodeFrame(ClipFrameKind::Control, reinterpret_cast<const std::uint8_t *>(jsonUtf8.data()), jsonUtf8.size());
 }
 
-std::vector<std::uint8_t> encodeDataFrame(const std::uint8_t *header, std::size_t headerLen,
-                                          const std::uint8_t *data, std::size_t dataLen)
+std::vector<std::uint8_t>
+encodeDataFrame(const std::uint8_t *header, std::size_t headerLen, const std::uint8_t *data, std::size_t dataLen)
 {
   if (header == nullptr || headerLen != kClipChunkHeaderBytes)
     return {};
@@ -314,7 +312,8 @@ std::vector<std::uint8_t> encodeDataFrame(const std::uint8_t *header, std::size_
 // ------------------------------------------------------- incremental decoder
 
 FrameDecoder::FrameDecoder(std::size_t maxControlPayload, std::size_t maxDataPayload)
-  : m_maxControl(maxControlPayload), m_maxData(maxDataPayload)
+    : m_maxControl(maxControlPayload),
+      m_maxData(maxDataPayload)
 {
 }
 
@@ -361,15 +360,13 @@ bool FrameDecoder::next(ClipFrame *out)
     return false;
 
   const std::uint8_t *lenField = m_buffer.data() + m_start + kClipKindBytes;
-  const std::size_t payloadLen =
-      isControl ? std::size_t(be16Read(lenField)) : std::size_t(be32Read(lenField));
+  const std::size_t payloadLen = isControl ? std::size_t(be16Read(lenField)) : std::size_t(be32Read(lenField));
   const std::size_t maxPayload = isControl ? m_maxControl : m_maxData;
 
   if (payloadLen == 0)
     return fail("zero-length frame payload");
   if (payloadLen > maxPayload) {
-    return fail("frame payload " + std::to_string(payloadLen) + " exceeds limit " +
-                std::to_string(maxPayload));
+    return fail("frame payload " + std::to_string(payloadLen) + " exceeds limit " + std::to_string(maxPayload));
   }
 
   const std::size_t total = kClipKindBytes + lenBytes + payloadLen;
@@ -430,8 +427,9 @@ std::vector<std::uint8_t> encodeChunkHeader(const ChunkHeader &header)
   return out;
 }
 
-bool makeChunkHeader(std::uint32_t seq, std::uint64_t offset, const std::uint8_t *data,
-                     std::size_t dataLen, ChunkHeader *out)
+bool makeChunkHeader(
+    std::uint32_t seq, std::uint64_t offset, const std::uint8_t *data, std::size_t dataLen, ChunkHeader *out
+)
 {
   if (out == nullptr || dataLen > kClipMaxChunkSize)
     return false;
@@ -464,8 +462,9 @@ std::vector<std::uint8_t> encodeDataPayload(const ChunkHeader &header, const std
   return out;
 }
 
-bool decodeDataPayload(const std::vector<std::uint8_t> &payload, ChunkHeader *header,
-                       const std::uint8_t **data, std::size_t *dataLen)
+bool decodeDataPayload(
+    const std::vector<std::uint8_t> &payload, ChunkHeader *header, const std::uint8_t **data, std::size_t *dataLen
+)
 {
   if (header == nullptr || data == nullptr || dataLen == nullptr)
     return false;
@@ -490,8 +489,7 @@ bool chunkDigestMatches(const ChunkHeader &header, const std::uint8_t *data)
 
 // -------------------------------------------------------------- chunk plan
 
-ChunkPlan::ChunkPlan(std::uint64_t fileSize, std::size_t chunkSize)
-  : m_fileSize(fileSize), m_chunkSize(chunkSize)
+ChunkPlan::ChunkPlan(std::uint64_t fileSize, std::size_t chunkSize) : m_fileSize(fileSize), m_chunkSize(chunkSize)
 {
   if (chunkSize < kClipMinChunkSize || chunkSize > kClipMaxChunkSize) {
     m_valid = false;

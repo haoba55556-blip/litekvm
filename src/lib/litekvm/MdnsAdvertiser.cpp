@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
+// SPDX-License-Identifier: GPL-2.0-only
 // LiteKVM mDNS advertiser — raw multicast-DNS announce on UDP/5353.
 //
 // Qt 6.8 has browse-only public API, so publishing is implemented here with a
@@ -8,7 +9,10 @@
 // Spec: docs/discovery-pairing-spec.md §3 (litekvm-design repo)
 #include "MdnsAdvertiser.h"
 
+#include "LanNic.h"
+
 #include <QNetworkInterface>
+#include <QTimer>
 #include <QUdpSocket>
 
 namespace litekvm {
@@ -45,13 +49,12 @@ void appendU32(QByteArray &out, quint32 v)
 }
 
 // build one answer record (single name, given type + rdata)
-QByteArray buildAnswer(const QString &fullName, quint16 type, const QByteArray &rdata,
-                       quint32 ttl = 4500)
+QByteArray buildAnswer(const QString &fullName, quint16 type, const QByteArray &rdata, quint32 ttl = 4500)
 {
   QByteArray a;
   appendDnsName(a, fullName);
   appendU16(a, type);
-  appendU16(a, 1);           // class IN + cache-flush bit (0x8001) would be typical; use plain IN
+  appendU16(a, 1);              // class IN + cache-flush bit (0x8001) would be typical; use plain IN
   a[a.size() - 2] = char(0x80); // set cache-flush bit on class field
   appendU32(a, ttl);
   appendU16(a, quint16(rdata.size()));
@@ -72,21 +75,25 @@ bool MdnsAdvertiser::start(const DeviceIdentity &self, uint16_t pairingPort, Pee
   m_pairingPort = pairingPort;
   m_state = state;
 
-  // join multicast group on all IPv4 interfaces
-  bool joined = false;
-  for (const QHostAddress &addr : allLocalAddresses()) {
-    if (m_socket.bind(addr, 0, QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
-      joined = true;
-      break;
-    }
-  }
-  if (!joined && !m_socket.bind(QHostAddress::AnyIPv4, kMdnsPort,
-                                QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
+  // Bind AnyIPv4, not the first adapter. The first CanMulticast address on
+  // Windows is often a virtual NIC, and announcements from there never reach
+  // the LAN. Share 5353 when we can so we also answer queries; otherwise an
+  // ephemeral port is enough because we re-announce on a timer.
+  const auto share = QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint;
+  if (m_socket.state() != QAbstractSocket::UnconnectedState)
+    m_socket.close();
+  if (!m_socket.bind(QHostAddress::AnyIPv4, kMdnsPort, share) && !m_socket.bind(QHostAddress::AnyIPv4, 0, share)) {
     return false;
   }
-  m_socket.joinMulticastGroup(kMdnsGroupV4);
+
+  // Receive on every real LAN adapter, not only the default route.
+  if (joinMdnsGroups(&m_socket) == 0)
+    m_socket.joinMulticastGroup(kMdnsGroupV4);
 
   announce();
+  m_announceTimer.setInterval(kAnnounceIntervalMs);
+  connect(&m_announceTimer, &QTimer::timeout, this, [this] { announce(); }, Qt::UniqueConnection);
+  m_announceTimer.start();
   return true;
 }
 
@@ -98,34 +105,37 @@ void MdnsAdvertiser::setState(PeerState state)
 
 void MdnsAdvertiser::stop()
 {
+  m_announceTimer.stop();
   m_socket.close();
 }
 
 QStringList MdnsAdvertiser::txtFields() const
 {
-  return {QStringLiteral("device-id=%1").arg(m_self->deviceId()),
-          QStringLiteral("name=%1").arg(m_self->name()),
-          QStringLiteral("platform=")
+  return {
+      QStringLiteral("device-id=%1").arg(m_self->deviceId()),
+      QStringLiteral("name=%1").arg(m_self->name()),
+      QStringLiteral("platform=")
 #if defined(Q_OS_WIN)
-              + QStringLiteral("win")
+          + QStringLiteral("win")
 #elif defined(Q_OS_MAC)
-              + QStringLiteral("mac")
+          + QStringLiteral("mac")
 #else
-              + QStringLiteral("linux")
+          + QStringLiteral("linux")
 #endif
           ,
-          QStringLiteral("fp=%1").arg(m_self->fingerprint()), QStringLiteral("proto=v1"),
-          QStringLiteral("port=%1").arg(m_pairingPort),
-          QStringLiteral("state=%1")
-              .arg(m_state == PeerState::Pairable ? QStringLiteral("pairable") : QStringLiteral("busy"))};
+      QStringLiteral("fp=%1").arg(m_self->fingerprint()),
+      QStringLiteral("proto=v1"),
+      QStringLiteral("port=%1").arg(m_pairingPort),
+      QStringLiteral("state=%1")
+          .arg(m_state == PeerState::Pairable ? QStringLiteral("pairable") : QStringLiteral("busy"))
+  };
 }
 
 QByteArray MdnsAdvertiser::buildAnnouncement() const
 {
-  const QString instance = QStringLiteral("%1.%2").arg(sanitizeInstanceName(m_self->name()),
-                                                       DiscoveryService::kServiceType);
-  const QString serviceEnum =
-      DiscoveryService::kServiceType;                       // _litekvm._tcp.local.
+  const QString instance =
+      QStringLiteral("%1.%2").arg(sanitizeInstanceName(m_self->name()), DiscoveryService::kServiceType);
+  const QString serviceEnum = DiscoveryService::kServiceType; // _litekvm._tcp.local.
   const QString host = QStringLiteral("%1.local.").arg(m_self->deviceId());
 
   // --- PTR: _litekvm._tcp.local. -> <instance> ---
@@ -165,8 +175,18 @@ QByteArray MdnsAdvertiser::buildAnnouncement() const
 
 void MdnsAdvertiser::announce()
 {
-  const QByteArray payload = buildAnnouncement();
-  m_socket.writeDatagram(payload, kMdnsGroupV4, kMdnsPort);
+  // One writeDatagram() leaves Windows on the default route. Fan out with
+  // IP_MULTICAST_IF so a second NIC (and not Wi-Fi Direct) also speaks.
+  sendMdnsDatagram(&m_socket, buildAnnouncement(), kMdnsPort);
+}
+
+bool MdnsAdvertiser::shouldAnswer(const QByteArray &datagram)
+{
+  // DNS header byte 2 holds the QR bit (0x80). Queries are 0, responses are 1.
+  // A response that contains "_litekvm" is an announcement, not a question.
+  if (datagram.size() < 4 || (static_cast<unsigned char>(datagram.at(2)) & 0x80) != 0)
+    return false;
+  return datagram.contains("_litekvm");
 }
 
 void MdnsAdvertiser::onReadyRead()
@@ -177,15 +197,13 @@ void MdnsAdvertiser::onReadyRead()
     QHostAddress sender;
     m_socket.readDatagram(datagram.data(), datagram.size(), &sender);
 
-    // minimal query parsing: find "_litekvm" in the question section and
-    // answer unicast to the asker (legacy mDNS quirk) + multicast
-    if (datagram.contains("_litekvm")) {
-      if (!datagram.contains("_litekvm._tcp.local.") || hasQuestionTail(datagram)) {
-        // reply directly to the querier too (helps some resolvers)
-        m_socket.writeDatagram(buildAnnouncement(), sender, kMdnsPort);
-      }
-      announce();
-    }
+    if (!shouldAnswer(datagram))
+      continue;
+
+    // Answer the query unicast (legacy mDNS) and multicast.
+    if (!datagram.contains("_litekvm._tcp.local.") || hasQuestionTail(datagram))
+      m_socket.writeDatagram(buildAnnouncement(), sender, kMdnsPort);
+    announce();
   }
 }
 

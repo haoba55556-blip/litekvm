@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: (C) 2026 LiteKVM Devs
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only
 // LayoutSync unit tests: JSON roundtrip, LWW-by-rev convergence.
 #include "../../lib/litekvm/LayoutSync.h"
 
@@ -8,7 +8,8 @@
 
 using namespace litekvm;
 
-class LayoutSyncTests : public QObject {
+class LayoutSyncTests : public QObject
+{
   Q_OBJECT
 
 private Q_SLOTS:
@@ -40,8 +41,9 @@ private Q_SLOTS:
     QJsonObject noScreens{{"type", "LAYOUT_UPDATE"}, {"rev", 3}};
     QVERIFY(!LayoutSync::layoutFromJson(noScreens).has_value());
 
-    QJsonObject negativeRev{{"type", "LAYOUT_UPDATE"}, {"rev", -1},
-                            {"screens", QJsonArray{QJsonObject{{"device_id", "x"}}}}};
+    QJsonObject negativeRev{
+        {"type", "LAYOUT_UPDATE"}, {"rev", -1}, {"screens", QJsonArray{QJsonObject{{"device_id", "x"}}}}
+    };
     QVERIFY(!LayoutSync::layoutFromJson(negativeRev).has_value());
   }
 
