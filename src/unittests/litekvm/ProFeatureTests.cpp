@@ -277,6 +277,27 @@ private Q_SLOTS:
     QVERIFY(isVirtualAdapterName(QStringLiteral("Hyper-V Virtual Ethernet Adapter"), QStringLiteral("vEthernet")));
   }
 
+  void clipPeerLabelPrefersConnectedScreenOverPlaceholder()
+  {
+    QCOMPARE(
+        clipPeerLabel(
+            QStringLiteral("this-device"), QStringLiteral("LAPTOP-8BPR9V7N"), QStringLiteral("DESKTOP-9GM1608")
+        ),
+        QStringLiteral("LAPTOP-8BPR9V7N")
+    );
+    QCOMPARE(
+        clipPeerLabel(QStringLiteral("this-device"), QStringLiteral("server"), QStringLiteral("DESKTOP-9GM1608")),
+        QStringLiteral("this-device")
+    );
+    QCOMPARE(
+        clipPeerLabel(QStringLiteral("real-laptop"), QStringLiteral("server"), QStringLiteral("DESKTOP-9GM1608")),
+        QStringLiteral("real-laptop")
+    );
+    QVERIFY(isPlaceholderPeerName(QStringLiteral("this-device")));
+    QVERIFY(hostIsThisMachine(QStringLiteral("127.0.0.1")));
+    QVERIFY(!hostIsThisMachine(QString()));
+  }
+
   void clipSendPrefersLiveSocketOverStaleTrust()
   {
     ClipRouteInput route;

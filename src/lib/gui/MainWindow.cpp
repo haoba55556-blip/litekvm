@@ -36,6 +36,7 @@
 #include "gui/widgets/EdgeFileDrop.h"
 #include "gui/widgets/LogDock.h"
 #include "litekvm/AutoStart.h"
+#include "litekvm/ClipRoute.h"
 #include "litekvm/ClipboardFileBridge.h"
 #include "litekvm/DiscoveryService.h"
 #include "net/FingerprintDatabase.h"
@@ -1661,10 +1662,12 @@ void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const Q
 
   QString deviceId;
   QString peerName;
+  QString peerHost;
   if (targets.size() == 1) {
     // 只有一台已配对设备，直接用它
     deviceId = targets.first().deviceId;
     peerName = targets.first().name;
+    peerHost = targets.first().host;
   } else {
     QStringList labels;
     for (const auto &target : targets)
@@ -1682,6 +1685,15 @@ void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const Q
     }
     deviceId = targets.at(index).deviceId;
     peerName = targets.at(index).name;
+    peerHost = targets.at(index).host;
+  }
+
+  if (litekvm::hostIsThisMachine(peerHost)) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("sendFiles"),
+        QStringLiteral("intent=%1 aborted self-host peer=%2 host=%3").arg(wireIntent, peerName, peerHost)
+    );
+    return;
   }
 
   const bool drag = wireIntent == QLatin1String("drag");
@@ -1700,7 +1712,7 @@ void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const Q
 
   litekvm::ClipboardFileBridge::traceStage(
       QStringLiteral("sendFiles"),
-      QStringLiteral("intent=%1 sending peer=%2 paths=%3").arg(wireIntent, peerName).arg(paths.size())
+      QStringLiteral("intent=%1 sending peer=%2 host=%3 paths=%4").arg(wireIntent, peerName, peerHost).arg(paths.size())
   );
   beginTransferUi(true, peerName, quint64(totalBytes));
   m_liteKvmController->sendFilesToPeer(deviceId, paths, wireIntent);
@@ -1743,6 +1755,12 @@ void MainWindow::onFileOfferReceived(
     preview += QStringLiteral("\n") + tr("…还有 %1 项").arg(fileNames.size() - 8);
 
   m_incomingClipIntent = intent.isEmpty() ? QStringLiteral("clipboard") : intent;
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("CLIP_OFFER-IN"), QStringLiteral("intent=%1 peer=%2 files=%3 bytes=%4")
+                                           .arg(m_incomingClipIntent, peerName)
+                                           .arg(fileCount)
+                                           .arg(totalBytes)
+  );
   // A drag is already in the user's hand; a confirmation dialog would cancel it.
   const bool autoAccept = m_incomingClipIntent == QLatin1String("drag") ||
                           Settings::value(Settings::LiteKvm::FileClipboardAutoAccept).toBool();
@@ -1753,11 +1771,18 @@ void MainWindow::onFileOfferReceived(
             .arg(fileCount)
             .arg(ClipTransferDialog::formatBytes(quint64(totalBytes)));
     if (!askVisible(tr("收到文件"), question, preview)) {
+      litekvm::ClipboardFileBridge::traceStage(
+          QStringLiteral("CLIP_REJECT"), QStringLiteral("intent=%1 peer=%2").arg(m_incomingClipIntent, peerName)
+      );
       m_liteKvmController->rejectIncomingFiles();
       return;
     }
   }
 
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("CLIP_ACCEPT"),
+      QStringLiteral("intent=%1 peer=%2 files=%3").arg(m_incomingClipIntent, peerName).arg(fileCount)
+  );
   beginTransferUi(false, peerName, quint64(totalBytes));
   m_liteKvmController->acceptIncomingFiles();
 }

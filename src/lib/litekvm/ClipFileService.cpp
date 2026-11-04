@@ -298,6 +298,11 @@ bool ClipFileService::isBusy() const
   return m_transfer && m_transfer->isActive();
 }
 
+bool ClipFileService::hasSession() const
+{
+  return m_socket != nullptr || m_transfer != nullptr;
+}
+
 ClipFileTransfer *ClipFileService::transfer() const
 {
   return m_transfer;
