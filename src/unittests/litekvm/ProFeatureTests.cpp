@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Tests for litekvm-pro features: AutoStart, AutoConnect, RoleNegotiation.
 #include "../../lib/arch/LowLatencySocket.h"
+#include "../../lib/deskflow/JumpZoneMouse.h"
 #include "../../lib/deskflow/MouseMotionCoalescer.h"
 #include "../../lib/litekvm/AutoConnect.h"
 #include "../../lib/litekvm/AutoStart.h"
@@ -369,6 +370,16 @@ private Q_SLOTS:
     // ...and coming back online is a no-op
     rn.setOnline(QStringLiteral("0000-small-id"));
     QCOMPARE(changed.available(), 1); // no additional change
+  }
+
+  void jumpZoneHookLeavesDragMovesForOle()
+  {
+    QVERIFY(!eatJumpZoneMouseMove(false, false, false));
+    QVERIFY(!eatJumpZoneMouseMove(true, true, false));
+    QVERIFY(eatJumpZoneMouseMove(true, false, false));
+    // Held button: the 1px edge move must reach the edge strip.
+    QVERIFY(!eatJumpZoneMouseMove(true, false, true));
+    QVERIFY(!eatJumpZoneMouseMove(true, true, true));
   }
 
   void roleFailsOverAfterHysteresis()

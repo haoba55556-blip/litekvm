@@ -667,13 +667,26 @@ int32_t MSWindowsScreen::getJumpZoneSize() const
 
 bool MSWindowsScreen::isAnyMouseButtonDown(uint32_t &buttonID) const
 {
-  static const char *buttonToName[] = {"<invalid>",    "Left Button", "Middle Button",
-                                       "Right Button", "X Button 1",  "X Button 2"};
+  // Shadow state misses Explorer's DoDragDrop: the physical button stays down
+  // but this thread's tracked m_buttons is already clear, so the server
+  // switches on the 1px edge before the GUI strip can see DragEnter.
+  static const struct
+  {
+    int vk;
+    uint32_t id;
+    const char *name;
+  } kButtons[] = {
+      {VK_LBUTTON, kButtonLeft, "Left Button"},   {VK_MBUTTON, kButtonMiddle, "Middle Button"},
+      {VK_RBUTTON, kButtonRight, "Right Button"}, {VK_XBUTTON1, kButtonExtra0, "X Button 1"},
+      {VK_XBUTTON2, kButtonExtra1, "X Button 2"},
+  };
 
-  for (uint32_t i = 1; i < sizeof(m_buttons) / sizeof(m_buttons[0]); ++i) {
-    if (m_buttons[i]) {
-      buttonID = i;
-      LOG_DEBUG("locked by \"%s\"", buttonToName[i]);
+  for (const auto &button : kButtons) {
+    const bool physical = (GetAsyncKeyState(button.vk) & 0x8000) != 0;
+    const bool tracked = button.id < NumButtonIDs && m_buttons[button.id];
+    if (physical || tracked) {
+      buttonID = button.id;
+      LOG_DEBUG("locked by \"%s\"", button.name);
       return true;
     }
   }

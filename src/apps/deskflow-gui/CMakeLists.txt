@@ -100,6 +100,10 @@ install(
 )
 
 if(WIN32)
+  # Same Per-Monitor V2 manifest as the core. Without it the GUI can place
+  # edge strips in a different coordinate space than the mouse hook.
+  target_sources(${target} PRIVATE ${CMAKE_SOURCE_DIR}/src/apps/deskflow-core/deskflow-core.exe.manifest)
+
   # LiteKVM: /NODEFAULTLIB:LIBCMT is MSVC-only (avoids CRT mismatch); MinGW
   # links libc via gcc driver and would choke on the flag
   if(MSVC)

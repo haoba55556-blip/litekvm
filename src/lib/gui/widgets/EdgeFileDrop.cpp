@@ -16,7 +16,15 @@
 #include <QGuiApplication>
 #include <QMimeData>
 #include <QScreen>
+#include <QShowEvent>
 #include <QWidget>
+
+#ifdef Q_OS_WIN
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 namespace deskflow::gui {
 
@@ -32,18 +40,40 @@ public:
         Qt::NoDropShadowWindowHint
     );
     setAttribute(Qt::WA_ShowWithoutActivating, true);
-    setAttribute(Qt::WA_TranslucentBackground, true);
     setAttribute(Qt::WA_TransparentForMouseEvents, false);
     setAttribute(Qt::WA_AlwaysStackOnTop, true);
-    // No setWindowOpacity(): on Windows that skips OLE hit-testing, so
-    // DragEnter never arrives. A 1/255 fill is enough to own a HWND.
+#ifdef Q_OS_WIN
+    // Per-pixel translucency (WA_TranslucentBackground) is skipped by
+    // WindowFromPoint, so OLE never delivers DragEnter. showEvent() applies a
+    // uniform layered alpha instead: the whole rect hit-tests, the pixels do not.
+    setAttribute(Qt::WA_TranslucentBackground, false);
+    setStyleSheet(QStringLiteral("background: black;"));
+#else
+    setAttribute(Qt::WA_TranslucentBackground, true);
     setStyleSheet(QStringLiteral("background-color: rgba(0, 0, 0, 1);"));
+#endif
     setAcceptDrops(true);
     setFocusPolicy(Qt::NoFocus);
     setGeometry(geom);
   }
 
 protected:
+  void showEvent(QShowEvent *event) override
+  {
+    QWidget::showEvent(event);
+#ifdef Q_OS_WIN
+    const HWND hwnd = reinterpret_cast<HWND>(winId());
+    if (hwnd == nullptr)
+      return;
+    const LONG_PTR ex = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+    SetWindowLongPtr(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOPMOST);
+    SetLayeredWindowAttributes(hwnd, 0, 1, LWA_ALPHA);
+    SetWindowPos(
+        hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_SHOWWINDOW
+    );
+#endif
+  }
+
   void dragEnterEvent(QDragEnterEvent *event) override
   {
     const DragRead read = readDrag(event->mimeData());
@@ -245,6 +275,7 @@ void EdgeFileDrop::rebuild()
       m_strips.append(strip);
     }
   }
+  litekvm::ClipboardFileBridge::traceStage(QStringLiteral("strips"), QStringLiteral("count=%1").arg(m_strips.size()));
 }
 
 } // namespace deskflow::gui
