@@ -413,6 +413,17 @@ private Q_SLOTS:
     grace.reset();
     QVERIFY(!grace.armed());
     QVERIFY(!grace.allowSwitch(10.0));
+
+    int32_t x = 0;
+    int32_t y = 400;
+    insetFromScreenEdge(0, 0, 1920, 1080, 120, x, y);
+    QCOMPARE(x, 120);
+    QCOMPARE(y, 400);
+    x = 1919;
+    y = 0;
+    insetFromScreenEdge(0, 0, 1920, 1080, 120, x, y);
+    QCOMPARE(x, 1920 - 1 - 120);
+    QCOMPARE(y, 120);
   }
 
   void roleFailsOverAfterHysteresis()

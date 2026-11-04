@@ -79,6 +79,10 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#include <exdisp.h>
+#include <objidl.h>
+#include <shlobj.h>
+#include <shobjidl.h>
 #include <windows.h>
 #endif
 
@@ -1598,6 +1602,341 @@ QString dropActionName(Qt::DropAction action)
   }
 }
 
+#if defined(Q_OS_WIN)
+QString shellFolderAtCursor(QString *windowClass)
+{
+  POINT pt{};
+  if (!GetCursorPos(&pt))
+    return {};
+  HWND hwnd = WindowFromPoint(pt);
+  HWND root = GetAncestor(hwnd, GA_ROOT);
+  if (root == nullptr)
+    root = hwnd;
+  wchar_t cls[128] = {};
+  GetClassNameW(root, cls, 128);
+  if (windowClass != nullptr)
+    *windowClass = QString::fromWCharArray(cls);
+
+  const bool desktop = wcscmp(cls, L"Progman") == 0 || wcscmp(cls, L"WorkerW") == 0;
+  if (desktop) {
+    PWSTR wide = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &wide)) || wide == nullptr)
+      return {};
+    const QString path = QString::fromWCharArray(wide);
+    CoTaskMemFree(wide);
+    return path;
+  }
+
+  IShellWindows *windows = nullptr;
+  if (FAILED(CoCreateInstance(CLSID_ShellWindows, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&windows))) || windows == nullptr)
+    return {};
+  long count = 0;
+  windows->get_Count(&count);
+  QString found;
+  for (long i = 0; i < count && found.isEmpty(); ++i) {
+    VARIANT index;
+    VariantInit(&index);
+    index.vt = VT_I4;
+    index.lVal = i;
+    IDispatch *dispatch = nullptr;
+    if (FAILED(windows->Item(index, &dispatch)) || dispatch == nullptr) {
+      VariantClear(&index);
+      continue;
+    }
+    IWebBrowser2 *browser = nullptr;
+    if (SUCCEEDED(dispatch->QueryInterface(IID_PPV_ARGS(&browser))) && browser != nullptr) {
+      SHANDLE_PTR handle = 0;
+      if (SUCCEEDED(browser->get_HWND(&handle)) && reinterpret_cast<HWND>(handle) == root) {
+        BSTR url = nullptr;
+        if (SUCCEEDED(browser->get_LocationURL(&url)) && url != nullptr) {
+          const QUrl location(QString::fromWCharArray(url));
+          if (location.isLocalFile())
+            found = location.toLocalFile();
+          SysFreeString(url);
+        }
+      }
+      browser->Release();
+    }
+    dispatch->Release();
+    VariantClear(&index);
+  }
+  windows->Release();
+  return found;
+}
+
+class FileDropEnum final : public IEnumFORMATETC
+{
+public:
+  FileDropEnum()
+  {
+    m_formats[0] = {CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    m_preferred = RegisterClipboardFormat(CFSTR_PREFERREDDROPEFFECT);
+    m_formats[1] = {m_preferred, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+  }
+
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void **out) override
+  {
+    if (out == nullptr)
+      return E_POINTER;
+    if (iid == IID_IUnknown || iid == IID_IEnumFORMATETC) {
+      *out = static_cast<IEnumFORMATETC *>(this);
+      AddRef();
+      return S_OK;
+    }
+    *out = nullptr;
+    return E_NOINTERFACE;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override
+  {
+    return ++m_refs;
+  }
+  ULONG STDMETHODCALLTYPE Release() override
+  {
+    const ULONG left = --m_refs;
+    if (left == 0)
+      delete this;
+    return left;
+  }
+  HRESULT STDMETHODCALLTYPE Next(ULONG count, FORMATETC *out, ULONG *fetched) override
+  {
+    ULONG wrote = 0;
+    while (count > 0 && m_index < 2) {
+      out[wrote++] = m_formats[m_index++];
+      --count;
+    }
+    if (fetched != nullptr)
+      *fetched = wrote;
+    return wrote == 0 ? S_FALSE : S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE Skip(ULONG count) override
+  {
+    m_index = qMin(2u, m_index + count);
+    return m_index >= 2 ? S_FALSE : S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE Reset() override
+  {
+    m_index = 0;
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE Clone(IEnumFORMATETC **out) override
+  {
+    if (out == nullptr)
+      return E_POINTER;
+    auto *copy = new FileDropEnum;
+    copy->m_index = m_index;
+    *out = copy;
+    return S_OK;
+  }
+
+  CLIPFORMAT preferred() const
+  {
+    return m_preferred;
+  }
+
+private:
+  ULONG m_refs = 1;
+  ULONG m_index = 0;
+  CLIPFORMAT m_preferred = 0;
+  FORMATETC m_formats[2]{};
+};
+
+class FileDropObject final : public IDataObject
+{
+public:
+  explicit FileDropObject(const QStringList &paths) : m_paths(paths)
+  {
+    m_preferred = RegisterClipboardFormat(CFSTR_PREFERREDDROPEFFECT);
+  }
+
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void **out) override
+  {
+    if (out == nullptr)
+      return E_POINTER;
+    if (iid == IID_IUnknown || iid == IID_IDataObject) {
+      *out = static_cast<IDataObject *>(this);
+      AddRef();
+      return S_OK;
+    }
+    *out = nullptr;
+    return E_NOINTERFACE;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override
+  {
+    return ++m_refs;
+  }
+  ULONG STDMETHODCALLTYPE Release() override
+  {
+    const ULONG left = --m_refs;
+    if (left == 0)
+      delete this;
+    return left;
+  }
+  HRESULT STDMETHODCALLTYPE GetData(FORMATETC *format, STGMEDIUM *medium) override
+  {
+    if (format == nullptr || medium == nullptr)
+      return E_INVALIDARG;
+    if (format->cfFormat == CF_HDROP && (format->tymed & TYMED_HGLOBAL) != 0)
+      return hdrop(medium);
+    if (format->cfFormat == m_preferred && (format->tymed & TYMED_HGLOBAL) != 0)
+      return effect(medium);
+    return DV_E_FORMATETC;
+  }
+  HRESULT STDMETHODCALLTYPE GetDataHere(FORMATETC *, STGMEDIUM *) override
+  {
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE QueryGetData(FORMATETC *format) override
+  {
+    if (format == nullptr)
+      return E_INVALIDARG;
+    if ((format->cfFormat == CF_HDROP || format->cfFormat == m_preferred) && (format->tymed & TYMED_HGLOBAL) != 0)
+      return S_OK;
+    return DV_E_FORMATETC;
+  }
+  HRESULT STDMETHODCALLTYPE GetCanonicalFormatEtc(FORMATETC *, FORMATETC *out) override
+  {
+    if (out != nullptr)
+      out->ptd = nullptr;
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE SetData(FORMATETC *, STGMEDIUM *, BOOL) override
+  {
+    return E_NOTIMPL;
+  }
+  HRESULT STDMETHODCALLTYPE EnumFormatEtc(DWORD direction, IEnumFORMATETC **out) override
+  {
+    if (out == nullptr)
+      return E_POINTER;
+    if (direction != DATADIR_GET)
+      return E_NOTIMPL;
+    *out = new FileDropEnum;
+    m_preferred = static_cast<FileDropEnum *>(*out)->preferred();
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE DAdvise(FORMATETC *, DWORD, IAdviseSink *, DWORD *) override
+  {
+    return OLE_E_ADVISENOTSUPPORTED;
+  }
+  HRESULT STDMETHODCALLTYPE DUnadvise(DWORD) override
+  {
+    return OLE_E_ADVISENOTSUPPORTED;
+  }
+  HRESULT STDMETHODCALLTYPE EnumDAdvise(IEnumSTATDATA **) override
+  {
+    return OLE_E_ADVISENOTSUPPORTED;
+  }
+
+private:
+  HRESULT hdrop(STGMEDIUM *medium) const
+  {
+    QByteArray wide;
+    for (const QString &path : m_paths) {
+      const auto *chars = reinterpret_cast<const char *>(path.utf16());
+      wide.append(chars, (path.size() + 1) * int(sizeof(char16_t)));
+    }
+    wide.append('\0');
+    wide.append('\0');
+    const SIZE_T bytes = sizeof(DROPFILES) + SIZE_T(wide.size());
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (memory == nullptr)
+      return E_OUTOFMEMORY;
+    auto *drop = static_cast<DROPFILES *>(GlobalLock(memory));
+    drop->pFiles = sizeof(DROPFILES);
+    drop->pt = {};
+    drop->fNC = FALSE;
+    drop->fWide = TRUE;
+    memcpy(reinterpret_cast<char *>(drop) + sizeof(DROPFILES), wide.constData(), size_t(wide.size()));
+    GlobalUnlock(memory);
+    medium->tymed = TYMED_HGLOBAL;
+    medium->hGlobal = memory;
+    medium->pUnkForRelease = nullptr;
+    return S_OK;
+  }
+
+  HRESULT effect(STGMEDIUM *medium) const
+  {
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD));
+    if (memory == nullptr)
+      return E_OUTOFMEMORY;
+    auto *value = static_cast<DWORD *>(GlobalLock(memory));
+    *value = DROPEFFECT_COPY;
+    GlobalUnlock(memory);
+    medium->tymed = TYMED_HGLOBAL;
+    medium->hGlobal = memory;
+    medium->pUnkForRelease = nullptr;
+    return S_OK;
+  }
+
+  ULONG m_refs = 1;
+  CLIPFORMAT m_preferred = 0;
+  QStringList m_paths;
+};
+
+class FileDropSource final : public IDropSource
+{
+public:
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void **out) override
+  {
+    if (out == nullptr)
+      return E_POINTER;
+    if (iid == IID_IUnknown || iid == IID_IDropSource) {
+      *out = static_cast<IDropSource *>(this);
+      AddRef();
+      return S_OK;
+    }
+    *out = nullptr;
+    return E_NOINTERFACE;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override
+  {
+    return ++m_refs;
+  }
+  ULONG STDMETHODCALLTYPE Release() override
+  {
+    const ULONG left = --m_refs;
+    if (left == 0)
+      delete this;
+    return left;
+  }
+  HRESULT STDMETHODCALLTYPE QueryContinueDrag(BOOL escape, DWORD keys) override
+  {
+    if (escape)
+      return DRAGDROP_S_CANCEL;
+    if ((keys & MK_LBUTTON) == 0)
+      return DRAGDROP_S_DROP;
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE GiveFeedback(DWORD) override
+  {
+    return DRAGDROP_S_USEDEFAULTCURSORS;
+  }
+
+private:
+  ULONG m_refs = 1;
+};
+
+QString placeFilesInFolder(const QStringList &paths, const QString &directory)
+{
+  QStringList landed;
+  QDir dir(directory);
+  if (!dir.exists())
+    return {};
+  for (const QString &path : paths) {
+    const QFileInfo info(path);
+    QString dest = dir.filePath(info.fileName());
+    if (QFileInfo::exists(dest) && QFileInfo(dest).size() == info.size()) {
+      landed.append(dest);
+      continue;
+    }
+    if (QFileInfo::exists(dest))
+      dest = dir.filePath(info.completeBaseName() + QStringLiteral("-litekvm.") + info.suffix());
+    if (QFile::copy(path, dest))
+      landed.append(dest);
+  }
+  return landed.join(QLatin1Char(';'));
+}
+#endif
+
 } // namespace
 
 void MainWindow::startRemoteDrag(const QStringList &paths)
@@ -1626,34 +1965,62 @@ void MainWindow::startRemoteDrag(const QStringList &paths)
     return;
   }
 
-  // Not the layered edge strip: that window is not a usable IDropSource.
-  auto *source = new QWidget(nullptr, Qt::Tool | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
-  source->setAttribute(Qt::WA_ShowWithoutActivating, true);
-  source->setFixedSize(1, 1);
-  source->move(QCursor::pos());
-  source->show();
+  m_remoteDragActive = true;
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("DoDragDrop"), QStringLiteral("start paths=%1 first=%2").arg(paths.size()).arg(paths.first())
+  );
 
+#if defined(Q_OS_WIN)
+  auto *data = new FileDropObject(paths);
+  auto *source = new FileDropSource;
+  DWORD effect = DROPEFFECT_NONE;
+  const HRESULT hr = DoDragDrop(data, source, DROPEFFECT_COPY, &effect);
+  data->Release();
+  source->Release();
+  const bool copied = hr == DRAGDROP_S_DROP && (effect & DROPEFFECT_COPY) != 0;
+  const bool cancelled = hr == DRAGDROP_S_CANCEL;
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("DoDragDrop"), QStringLiteral("result=%1 hr=0x%2 effect=0x%3")
+                                        .arg(copied ? QStringLiteral("copy") : QStringLiteral("none"))
+                                        .arg(uint32_t(hr), 8, 16, QLatin1Char('0'))
+                                        .arg(uint32_t(effect), 0, 16)
+  );
+  if (cancelled)
+    litekvm::ClipboardFileBridge::traceStage(QStringLiteral("DoDragDrop"), QStringLiteral("result=none reason=cancel"));
+
+  QString windowClass;
+  const QString folder = shellFolderAtCursor(&windowClass);
+  const QString landed = folder.isEmpty() ? QString() : placeFilesInFolder(paths, folder);
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("drop-file"), QStringLiteral("class=%1 dir=%2 landed=%3")
+                                       .arg(
+                                           windowClass, folder.isEmpty() ? QStringLiteral("-") : folder,
+                                           landed.isEmpty() ? QStringLiteral("-") : landed
+                                       )
+  );
+#else
+  auto *sourceWidget = new QWidget(nullptr, Qt::Tool | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
+  sourceWidget->setFixedSize(1, 1);
+  sourceWidget->move(QCursor::pos());
+  sourceWidget->show();
   auto *mime = litekvm::ClipboardFileBridge::makeFileMimeData(paths);
-  if (!mime) {
-    source->deleteLater();
+  if (mime == nullptr) {
+    sourceWidget->deleteLater();
+    m_remoteDragActive = false;
     litekvm::ClipboardFileBridge::traceStage(
         QStringLiteral("DoDragDrop"), QStringLiteral("result=none reason=no-mime")
     );
     return;
   }
-
-  m_remoteDragActive = true;
-  litekvm::ClipboardFileBridge::traceStage(
-      QStringLiteral("DoDragDrop"), QStringLiteral("start paths=%1 first=%2").arg(paths.size()).arg(paths.first())
-  );
-  QDrag drag(source);
-  drag.setMimeData(mime); // QDrag takes ownership. Windows: exec() is DoDragDrop.
+  QDrag drag(sourceWidget);
+  drag.setMimeData(mime);
   const Qt::DropAction result = drag.exec(Qt::CopyAction);
-  m_remoteDragActive = false;
-  source->deleteLater();
+  sourceWidget->deleteLater();
   litekvm::ClipboardFileBridge::traceStage(
       QStringLiteral("DoDragDrop"), QStringLiteral("result=%1 paths=%2").arg(dropActionName(result)).arg(paths.size())
   );
+#endif
+  m_remoteDragActive = false;
 }
 
 bool MainWindow::askVisible(const QString &title, const QString &text, const QString &detail)
