@@ -75,11 +75,9 @@ public:
 
   /// 已配对的对端（在线的排在前面）；没有已配对设备时返回空列表。
   [[nodiscard]] QList<ClipTarget> clipTargets() const;
-  /// 当前是否有正在进行的传输。
-  [[nodiscard]] bool transferActive() const
-  {
-    return m_transferActive;
-  }
+  /// 当前是否有正在进行的传输。握手失败后会话已拆掉时不再算作进行中，
+  /// 否则一次自环会让后面的拖放全部 aborted transfer-active。
+  [[nodiscard]] bool transferActive() const;
   [[nodiscard]] bool transferOutgoing() const
   {
     return m_transferOutgoing;

@@ -5,12 +5,15 @@
 // Spec: docs/discovery-pairing-spec.md §2 (litekvm-design repo)
 #include "DeviceIdentity.h"
 
+#include "ClipRoute.h"
+
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSettings>
+#include <QSysInfo>
 #include <QtGlobal>
 
 #include <openssl/evp.h>
@@ -111,8 +114,23 @@ std::optional<DeviceIdentity> DeviceIdentity::loadOrCreate(const QString &storag
       id.m_deviceId = obj.value("device_id").toString();
       id.m_name = obj.value("name").toString();
       // integrity check: device_id must match pubkey
-      if (id.m_deviceId == deviceIdFromPubkey(id.m_pub.data(), id.m_pub.size()))
+      if (id.m_deviceId == deviceIdFromPubkey(id.m_pub.data(), id.m_pub.size())) {
+        // Older builds saved the placeholder instead of the computer name, so
+        // every paired peer was stored as "this-device".
+        if (isPlaceholderPeerName(id.m_name)) {
+          const QString hostName = QSysInfo::machineHostName().trimmed();
+          if (!hostName.isEmpty()) {
+            id.m_name = hostName;
+            QJsonObject rewritten = obj;
+            rewritten.insert("name", id.m_name);
+            if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+              file.write(QJsonDocument(rewritten).toJson(QJsonDocument::Compact));
+              file.close();
+            }
+          }
+        }
         return id;
+      }
     }
   }
 
@@ -126,8 +144,11 @@ std::optional<DeviceIdentity> DeviceIdentity::loadOrCreate(const QString &storag
   memcpy(id.m_priv.data(), kp.priv.data(), 32);
   id.m_deviceId = deviceIdFromPubkey(id.m_pub.data(), id.m_pub.size());
 
-  if (id.m_name.isEmpty())
-    id.m_name = QSysInfo::machineHostName();
+  if (isPlaceholderPeerName(id.m_name)) {
+    const QString hostName = QSysInfo::machineHostName().trimmed();
+    if (!hostName.isEmpty())
+      id.m_name = hostName;
+  }
 
   // persist
   QJsonObject obj;

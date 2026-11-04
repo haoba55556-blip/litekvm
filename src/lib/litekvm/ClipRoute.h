@@ -10,6 +10,8 @@
 
 #include "DiscoveryService.h"
 
+#include <QHostAddress>
+#include <QNetworkInterface>
 #include <QString>
 
 namespace litekvm {
@@ -24,6 +26,50 @@ struct ClipRouteInput
   QString discoveredHost;
   QString trustedHost;
 };
+
+/// "this-device" is the identity default, and the client reports the live peer
+/// as "server" when it does not know the screen name. Neither is a machine.
+inline bool isPlaceholderPeerName(const QString &name)
+{
+  const QString trimmed = name.trimmed();
+  return trimmed.isEmpty() || trimmed.compare(QLatin1String("this-device"), Qt::CaseInsensitive) == 0 ||
+         trimmed.compare(QLatin1String("server"), Qt::CaseInsensitive) == 0;
+}
+
+/// Label to show and log. A live core screen name beats a placeholder stored
+/// at pairing time, and never the name of this machine.
+inline QString clipPeerLabel(const QString &storedName, const QString &liveScreenName, const QString &selfName)
+{
+  const auto usable = [&](const QString &name) {
+    return !isPlaceholderPeerName(name) && (selfName.isEmpty() || name.compare(selfName, Qt::CaseInsensitive) != 0);
+  };
+  if (usable(liveScreenName))
+    return liveScreenName.trimmed();
+  if (usable(storedName))
+    return storedName.trimmed();
+  return storedName.trimmed();
+}
+
+/// True for loopback, multicast, or an address configured on this machine.
+/// Dialing one of those is a self-loop on the file port.
+inline bool hostIsThisMachine(const QString &host)
+{
+  const QString trimmed = host.trimmed();
+  if (trimmed.isEmpty())
+    return false;
+  const QString normalized = DiscoveryService::normalizeHost(trimmed);
+  if (normalized.isEmpty())
+    return true;
+  const QHostAddress want(normalized);
+  if (want.isNull())
+    return false;
+  const auto mine = QNetworkInterface::allAddresses();
+  for (const QHostAddress &addr : mine) {
+    if (addr.isEqual(want, QHostAddress::TolerantConversion))
+      return true;
+  }
+  return false;
+}
 
 inline bool liveHostApplies(const ClipRouteInput &in)
 {

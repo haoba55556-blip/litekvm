@@ -170,6 +170,9 @@ public:
   QString peerName() const;
   /// True while a ClipFileTransfer is running.
   bool isBusy() const;
+  /// True while a socket or transfer is still open. A handshake failure clears
+  /// this even if the GUI still thinks a send is in progress.
+  bool hasSession() const;
   /// The live transfer, or nullptr between sessions (it is destroyed with the
   /// session, so read state from the forwarded signals once it ends).
   ClipFileTransfer *transfer() const;

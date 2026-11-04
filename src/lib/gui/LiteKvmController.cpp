@@ -90,10 +90,11 @@ void LiteKvmController::noteAutoSessionDown(const QString &deviceId)
 void LiteKvmController::noteLivePeer(const QString &screenName, const QString &host)
 {
   const QString addr = litekvm::DiscoveryService::normalizeHost(host);
-  if (addr.isEmpty() || !m_trust)
+  if (addr.isEmpty() || !m_trust || litekvm::hostIsThisMachine(addr))
     return;
   m_livePeerHost = addr;
   m_livePeerName = screenName;
+  const QString selfName = m_identity ? m_identity->name() : QString();
   const int paired = int(m_trust->entries().size());
   for (const auto &entry : m_trust->entries()) {
     litekvm::ClipRouteInput route;
@@ -102,8 +103,16 @@ void LiteKvmController::noteLivePeer(const QString &screenName, const QString &h
     route.deviceId = entry.deviceId;
     route.deviceName = entry.name;
     route.pairedCount = paired;
-    if (litekvm::liveHostApplies(route))
-      m_trust->updateLastAddr(entry.deviceId, addr);
+    if (!litekvm::liveHostApplies(route))
+      continue;
+    m_trust->updateLastAddr(entry.deviceId, addr);
+    const QString label = litekvm::clipPeerLabel(entry.name, screenName, selfName);
+    if (label != entry.name) {
+      litekvm::TrustEntry renamed = entry;
+      renamed.name = label;
+      renamed.lastAddr = addr;
+      m_trust->upsert(renamed);
+    }
   }
 }
 
@@ -231,6 +240,7 @@ void LiteKvmController::setupFileClipboard()
   });
 
   connect(m_clipFile, &litekvm::ClipFileService::errorOccurred, this, [this](const QString &message) {
+    m_transferActive = false;
     Q_EMIT fileClipboardError(message);
   });
 
@@ -296,11 +306,22 @@ void LiteKvmController::applyFileClipboardSettings()
     m_clipFile->setMaxTransferBytes(m_maxTransferBytes);
 }
 
+bool LiteKvmController::transferActive() const
+{
+  if (!m_transferActive)
+    return false;
+  if (m_clipFile && !m_clipFile->hasSession())
+    return false;
+  return true;
+}
+
 QList<LiteKvmController::ClipTarget> LiteKvmController::clipTargets() const
 {
   QList<ClipTarget> targets;
   QSet<QString> seen;
   const int paired = m_trust ? int(m_trust->entries().size()) : 0;
+  const QString selfId = m_identity ? m_identity->deviceId() : QString();
+  const QString selfName = m_identity ? m_identity->name() : QString();
 
   auto routeHost = [&](const QString &deviceId, const QString &name, const QString &discovered,
                        const QString &trusted) {
@@ -325,10 +346,17 @@ QList<LiteKvmController::ClipTarget> LiteKvmController::clipTargets() const
         if (const auto *entry = m_trust->find(peer.deviceId))
           trusted = entry->lastAddr;
       }
-      const QString host = routeHost(peer.deviceId, peer.name, peer.host, trusted);
-      if (host.isEmpty())
+      if (!selfId.isEmpty() && peer.deviceId == selfId)
         continue;
-      targets.append(ClipTarget{peer.deviceId, peer.name, peer.platform, host, clipFilePort(), true});
+      const QString host = routeHost(peer.deviceId, peer.name, peer.host, trusted);
+      if (host.isEmpty() || litekvm::hostIsThisMachine(host))
+        continue;
+      const QString label = litekvm::liveHostApplies(
+                                {m_livePeerHost, m_livePeerName, peer.deviceId, peer.name, paired, peer.host, trusted}
+                            )
+                                ? litekvm::clipPeerLabel(peer.name, m_livePeerName, selfName)
+                                : peer.name;
+      targets.append(ClipTarget{peer.deviceId, label, peer.platform, host, clipFilePort(), true});
       seen.insert(peer.deviceId);
     }
   }
@@ -336,15 +364,16 @@ QList<LiteKvmController::ClipTarget> LiteKvmController::clipTargets() const
   // 2) Paired devices discovery cannot see. Live socket address wins over trust.json.
   if (m_trust) {
     for (const auto &entry : m_trust->entries()) {
-      if (seen.contains(entry.deviceId))
+      if (seen.contains(entry.deviceId) || (!selfId.isEmpty() && entry.deviceId == selfId))
         continue;
       const QString host = routeHost(entry.deviceId, entry.name, QString(), entry.lastAddr);
-      if (host.isEmpty())
+      if (host.isEmpty() || litekvm::hostIsThisMachine(host))
         continue;
       const bool live = litekvm::liveHostApplies(
           {m_livePeerHost, m_livePeerName, entry.deviceId, entry.name, paired, {}, entry.lastAddr}
       );
-      targets.append(ClipTarget{entry.deviceId, entry.name, entry.platform, host, clipFilePort(), live});
+      const QString label = live ? litekvm::clipPeerLabel(entry.name, m_livePeerName, selfName) : entry.name;
+      targets.append(ClipTarget{entry.deviceId, label, entry.platform, host, clipFilePort(), live});
       seen.insert(entry.deviceId);
     }
   }
