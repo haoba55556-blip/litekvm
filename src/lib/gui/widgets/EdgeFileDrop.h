@@ -48,6 +48,9 @@ public:
   /// Widget to use as the QDrag source (a visible strip, or nullptr).
   QWidget *dragSource() const;
 
+  /// Edge strips currently shown. Zero until setEnabled(true).
+  int stripCount() const;
+
   /// DragEnter/Drop. Debounced; does not wait for a dwell.
   void beginDrag(const QStringList &paths);
   void noteDragLeft();

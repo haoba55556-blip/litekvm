@@ -137,6 +137,16 @@ QWidget *EdgeFileDrop::dragSource() const
   return nullptr;
 }
 
+int EdgeFileDrop::stripCount() const
+{
+  int count = 0;
+  for (const auto &strip : m_strips) {
+    if (strip)
+      ++count;
+  }
+  return count;
+}
+
 void EdgeFileDrop::destroyStrips()
 {
   const auto strips = m_strips;
@@ -170,7 +180,9 @@ void EdgeFileDrop::rebuild()
     };
     for (const QRect &edge : edges) {
       auto *strip = new EdgeStrip(edge, this);
-      strip->QObject::setParent(this);
+      // Do not QObject::setParent() onto this QObject. These are top-level
+      // tool windows; a non-widget QObject parent makes QWidget::show() crash
+      // in createWinId() (Qt rejects that parent). destroyStrips() owns them.
       strip->show();
       m_strips.append(strip);
     }
