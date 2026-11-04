@@ -335,6 +335,10 @@ void MainWindow::reworkPanels()
 
   m_edgeDrop = new deskflow::gui::EdgeFileDrop(this);
   connect(m_edgeDrop, &deskflow::gui::EdgeFileDrop::filesDragged, this, &MainWindow::onEdgeFilesDragged);
+  // setupFileClipboard() already applied this setting, but m_edgeDrop was still
+  // null, so setEnabled was skipped and the edge strips were never created.
+  // Settings changes later call this again; startup must do it once the object exists.
+  applyFileClipboardSettings();
 }
 
 //////////////////////////////////////////////////////////////////////////////
