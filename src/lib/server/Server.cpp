@@ -435,7 +435,7 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
     m_dragInsetLanding = false;
     const int32_t landedX = x;
     const int32_t landedY = y;
-    insetFromScreenEdge(dx, dy, dw, dh, 120, x, y);
+    insetFromScreenEdge(dx, dy, dw, dh, kDragLandingMargin, x, y);
     m_dragSettle = true;
     m_dragSettleWatch.reset();
     m_dragSettleWatch.start();
@@ -880,6 +880,12 @@ bool Server::isSwitchOkay(
       stopSwitch();
     }
   }
+
+  // Releasing during the hold used to cross with the pointer still on the
+  // shared edge (the button was already up, so the grace inset never ran).
+  // The center warp then bounced the screens. Inset that crossing too.
+  if (!preventSwitch && m_dragEdgeGrace.armed())
+    m_dragInsetLanding = true;
 
   return !preventSwitch;
 }
@@ -1666,6 +1672,35 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
   // mouse move on primary (server's) screen
   if (m_active != m_primaryClient) {
     // stale event -- we're actually on a secondary screen
+    return false;
+  }
+
+  // A drag that landed here reports absolute positions. The physical cursor
+  // is still on the edge the user was pushing, so the next sample switches
+  // straight back and the center warp logs a ~1000 px bogus delta. Hold the
+  // pointer inside the screen until that spike has passed.
+  if (dragSettleActive()) {
+    int32_t ax = 0;
+    int32_t ay = 0;
+    int32_t aw = 0;
+    int32_t ah = 0;
+    m_active->getShape(ax, ay, aw, ah);
+    int32_t cx = x;
+    int32_t cy = y;
+    m_xDelta2 = m_xDelta;
+    m_yDelta2 = m_yDelta;
+    if (clampInsideMargin(ax, ay, aw, ah, kDragLandingMargin, cx, cy)) {
+      m_xDelta = cx - m_x;
+      m_yDelta = cy - m_y;
+      m_x = cx;
+      m_y = cy;
+      m_active->mouseMove(cx, cy);
+    } else {
+      m_xDelta = x - m_x;
+      m_yDelta = y - m_y;
+      m_x = x;
+      m_y = y;
+    }
     return false;
   }
 

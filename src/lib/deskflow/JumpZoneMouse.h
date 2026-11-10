@@ -50,6 +50,11 @@ private:
   bool m_armed = false;
 };
 
+// How far inside the destination a drag should land, and how far from the
+// edge the pointer is held while that landing settles. Farther than the 1 px
+// jump zone, so the warp back to center cannot throw the pointer across.
+inline constexpr int32_t kDragLandingMargin = 120;
+
 // A drag lands on the shared edge. The next relative delta is still aimed
 // off that edge (and the primary cursor warp adds a large one), so the
 // pointer is thrown back. Pull the landing point inside the destination.
@@ -80,4 +85,33 @@ insetFromScreenEdge(int32_t left, int32_t top, int32_t width, int32_t height, in
     x = right;
   if (y > bottom)
     y = bottom;
+}
+
+// While a drag landing is settling, keep an absolute pointer (the primary
+// screen reports positions, not deltas) out of the edge band. @return true
+// when @p x or @p y was moved.
+inline bool
+clampInsideMargin(int32_t left, int32_t top, int32_t width, int32_t height, int32_t margin, int32_t &x, int32_t &y)
+{
+  if (width < 1 || height < 1)
+    return false;
+  if (margin < 1)
+    margin = 1;
+  if (width <= margin * 2 || height <= margin * 2)
+    margin = 1;
+  const int32_t minX = left + margin;
+  const int32_t maxX = left + width - 1 - margin;
+  const int32_t minY = top + margin;
+  const int32_t maxY = top + height - 1 - margin;
+  const int32_t oldX = x;
+  const int32_t oldY = y;
+  if (x < minX)
+    x = minX;
+  else if (x > maxX)
+    x = maxX;
+  if (y < minY)
+    y = minY;
+  else if (y > maxY)
+    y = maxY;
+  return x != oldX || y != oldY;
 }

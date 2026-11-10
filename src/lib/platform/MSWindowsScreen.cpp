@@ -1274,7 +1274,9 @@ bool MSWindowsScreen::onMouseMove(int32_t mx, int32_t my)
     if (-x + bogusZoneSize > m_xCenter - m_x || x + bogusZoneSize > m_x + m_w - m_xCenter ||
         -y + bogusZoneSize > m_yCenter - m_y || y + bogusZoneSize > m_y + m_h - m_yCenter) {
 
-      LOG_DEBUG("dropped bogus delta motion: %+d,%+d", x, y);
+      // Expected echo of the center warp, once per real move. Debug logging
+      // would format it on the hook thread and stall the pointer.
+      LOG_VERBOSE("dropped bogus delta motion: %+d,%+d", x, y);
     } else {
       // send motion
       sendEvent(EventTypes::PrimaryScreenMotionOnSecondary, MotionInfo::alloc(x, y));

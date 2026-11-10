@@ -20,6 +20,7 @@
 #include "config/ServerConfig.h"
 #include "gui/core/CoreProcess.h"
 #include "gui/core/NetworkMonitor.h"
+#include "litekvm/RemoteDragDrop.h"
 #include "net/Fingerprint.h"
 
 namespace litekvm {
@@ -33,6 +34,7 @@ struct DiscoveredPeer;
 class QAction;
 class QMenu;
 class QLocalServer;
+class QTimer;
 
 class DeskflowApplication;
 class LogDock;
@@ -173,6 +175,8 @@ private:
   void onAutoSessionRequested(const litekvm::DiscoveredPeer &peer);
   void onEdgeFilesDragged(const QStringList &paths);
   void startRemoteDrag(const QStringList &paths);
+  void pollRemoteDrag();
+  void finishRemoteDrag(const char *reason);
   bool askVisible(const QString &title, const QString &text, const QString &detail = QString());
   void onFileProgressChanged(quint64 bytesDone, quint64 bytesTotal, bool outgoing);
   void onFileTransferCompleted(const QStringList &localPaths, bool outgoing, const QString &transferId);
@@ -230,6 +234,11 @@ private:
   deskflow::gui::ClipTransferDialog *m_clipTransferDialog = nullptr;
   bool m_fileClipboardEnabled = false;
   bool m_remoteDragActive = false;
+  QTimer *m_remoteDragTimer = nullptr;
+  QStringList m_remoteDragPaths;
+  QElapsedTimer m_remoteDragClock;
+  litekvm::RemoteDragWait m_remoteDragWait;
+  litekvm::RemoteDropLatch m_remoteDropLatch;
   bool m_filePromptShowing = false;
   bool m_clipTransferOutgoing = false;
   QString m_clipTransferPeer;

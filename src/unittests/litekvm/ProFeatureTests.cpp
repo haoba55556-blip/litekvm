@@ -12,6 +12,7 @@
 #include "../../lib/litekvm/ElevatedCore.h"
 #include "../../lib/litekvm/LanNic.h"
 #include "../../lib/litekvm/MdnsAdvertiser.h"
+#include "../../lib/litekvm/RemoteDragDrop.h"
 #include "../../lib/litekvm/RoleNegotiation.h"
 #include "../../lib/litekvm/TrustStore.h"
 
@@ -215,11 +216,73 @@ private Q_SLOTS:
     QVERIFY(gate.onEnter(files, 1000));
     gate.onLeave();
     QVERIFY(gate.transferStarted());
-    // Same drag flickering back onto the strip must not send a second copy.
+    QVERIFY(gate.latched());
+    // A bounce back onto the strip must not send a second copy, even long
+    // after the old time debounce would have expired.
     QVERIFY(!gate.onEnter(files, 1200));
-    // A later, different drag does.
+    QVERIFY(!gate.onEnter(files, 1000 + 5000));
+    // A different drag while the button is still down does start.
     QVERIFY(gate.onEnter({QStringLiteral("C:/b.txt")}, 1200));
-    QVERIFY(gate.onEnter(files, 1000 + DragEdgeGate::kDebounceMs));
+    gate.onButtonReleased();
+    QVERIFY(!gate.latched());
+    QVERIFY(gate.onEnter(files, 1300));
+  }
+
+  void edgeStripStaysHiddenUntilTheDragMoves()
+  {
+    EdgeStripArm arm;
+    QVERIFY(!arm.shouldShow(true, 0, true));
+    arm.setButtonDown(true, 100, 100, 1000);
+    QVERIFY(!arm.moved());
+    QVERIFY(!arm.shouldShow(true, 1000, true));
+    arm.setButtonDown(true, 104, 100, 1010);
+    QVERIFY(!arm.moved());
+    arm.setButtonDown(true, 100 + EdgeStripArm::kThresholdPx, 100, 1020);
+    QVERIFY(arm.moved());
+    QVERIFY(!arm.shouldShow(false, 1020, true));
+    QVERIFY(arm.shouldShow(true, 1020, false));
+    // No hook: a pointer that is already on the edge when first sampled
+    // still arms after the hold, which is inside the screen-switch grace.
+    EdgeStripArm held;
+    held.setButtonDown(true, 0, 400, 0);
+    QVERIFY(!held.shouldShow(true, EdgeStripArm::kHoldMs - 1, true));
+    QVERIFY(held.shouldShow(true, EdgeStripArm::kHoldMs, true));
+    QVERIFY(!held.shouldShow(true, EdgeStripArm::kHoldMs, false));
+    arm.setButtonDown(false, 200, 200, 1100);
+    QVERIFY(!arm.buttonDown());
+    QVERIFY(!arm.shouldShow(true, 1100, true));
+
+    QVERIFY(EdgeStripArm::nearEdge(0, 400, 0, 0, 1920, 1080, EdgeStripArm::kNearEdgePx));
+    QVERIFY(EdgeStripArm::nearEdge(960, 10, 0, 0, 1920, 1080, EdgeStripArm::kNearEdgePx));
+    QVERIFY(!EdgeStripArm::nearEdge(960, 400, 0, 0, 1920, 1080, EdgeStripArm::kNearEdgePx));
+  }
+
+  void remoteDragCopiesOnReleaseWithoutBlocking()
+  {
+    RemoteDragWait wait;
+    QCOMPARE(wait.tick(false, 0), RemoteDragWait::Decision::KeepWaiting);
+    QCOMPARE(wait.tick(false, RemoteDragWait::kAppearMs - 1), RemoteDragWait::Decision::KeepWaiting);
+    QCOMPARE(wait.tick(false, RemoteDragWait::kAppearMs), RemoteDragWait::Decision::CopyAlreadyUp);
+    QCOMPARE(
+        QLatin1String(RemoteDragWait::reason(RemoteDragWait::Decision::CopyAlreadyUp)), QLatin1String("already-up")
+    );
+
+    wait.reset();
+    QCOMPARE(wait.tick(true, 10), RemoteDragWait::Decision::KeepWaiting);
+    QVERIFY(wait.sawButton());
+    QCOMPARE(wait.tick(true, RemoteDragWait::kAppearMs + 50), RemoteDragWait::Decision::KeepWaiting);
+    QCOMPARE(wait.tick(false, 800), RemoteDragWait::Decision::CopyOnRelease);
+    QCOMPARE(QLatin1String(RemoteDragWait::reason(RemoteDragWait::Decision::CopyOnRelease)), QLatin1String("release"));
+
+    wait.reset();
+    QCOMPARE(wait.tick(true, RemoteDragWait::kGiveUpMs), RemoteDragWait::Decision::CopyTimeout);
+
+    RemoteDropLatch latch;
+    const QStringList file{QStringLiteral("C:/a.txt")};
+    QVERIFY(latch.accept(file, 1000));
+    QVERIFY(!latch.accept(file, 1000 + RemoteDropLatch::kDuplicateMs - 1));
+    QVERIFY(latch.accept({QStringLiteral("C:/b.txt")}, 1001));
+    QVERIFY(latch.accept(file, 1000 + RemoteDropLatch::kDuplicateMs));
   }
 
   void mouseMotionCoalescerKeepsLatestAndSums()
@@ -416,14 +479,25 @@ private Q_SLOTS:
 
     int32_t x = 0;
     int32_t y = 400;
-    insetFromScreenEdge(0, 0, 1920, 1080, 120, x, y);
-    QCOMPARE(x, 120);
+    insetFromScreenEdge(0, 0, 1920, 1080, kDragLandingMargin, x, y);
+    QCOMPARE(x, kDragLandingMargin);
     QCOMPARE(y, 400);
     x = 1919;
     y = 0;
-    insetFromScreenEdge(0, 0, 1920, 1080, 120, x, y);
-    QCOMPARE(x, 1920 - 1 - 120);
-    QCOMPARE(y, 120);
+    insetFromScreenEdge(0, 0, 1920, 1080, kDragLandingMargin, x, y);
+    QCOMPARE(x, 1920 - 1 - kDragLandingMargin);
+    QCOMPARE(y, kDragLandingMargin);
+
+    x = 0;
+    y = 400;
+    QVERIFY(clampInsideMargin(0, 0, 1920, 1080, kDragLandingMargin, x, y));
+    QCOMPARE(x, kDragLandingMargin);
+    QCOMPARE(y, 400);
+    x = 960;
+    y = 540;
+    QVERIFY(!clampInsideMargin(0, 0, 1920, 1080, kDragLandingMargin, x, y));
+    QCOMPARE(x, 960);
+    QCOMPARE(y, 540);
   }
 
   void roleFailsOverAfterHysteresis()
