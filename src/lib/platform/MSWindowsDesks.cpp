@@ -6,6 +6,12 @@
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
+// Must precede every Windows.h include in this TU. MSWindowsDesks.h is first
+// and defines OEMRESOURCE itself; repeat it here so a later include reorder
+// cannot hide OCR_* from MinGW.
+#ifndef OEMRESOURCE
+#define OEMRESOURCE
+#endif
 #include "platform/MSWindowsDesks.h"
 
 #include "arch/Arch.h"
@@ -33,6 +39,52 @@
 #endif
 #if !defined(SPI_GETSCREENSAVERRUNNING)
 #define SPI_GETSCREENSAVERRUNNING 114
+#endif
+#if !defined(SPI_SETCURSORS)
+#define SPI_SETCURSORS 0x0057
+#endif
+
+// OCR_* live in winuser.h only when OEMRESOURCE was defined before Windows.h,
+// and OCR_HAND / OCR_APPSTARTING also require a new enough WINVER. The values
+// are the documented system-cursor ids.
+#if !defined(OCR_NORMAL)
+#define OCR_NORMAL 32512
+#endif
+#if !defined(OCR_IBEAM)
+#define OCR_IBEAM 32513
+#endif
+#if !defined(OCR_WAIT)
+#define OCR_WAIT 32514
+#endif
+#if !defined(OCR_CROSS)
+#define OCR_CROSS 32515
+#endif
+#if !defined(OCR_UP)
+#define OCR_UP 32516
+#endif
+#if !defined(OCR_SIZENWSE)
+#define OCR_SIZENWSE 32642
+#endif
+#if !defined(OCR_SIZENESW)
+#define OCR_SIZENESW 32643
+#endif
+#if !defined(OCR_SIZEWE)
+#define OCR_SIZEWE 32644
+#endif
+#if !defined(OCR_SIZENS)
+#define OCR_SIZENS 32645
+#endif
+#if !defined(OCR_SIZEALL)
+#define OCR_SIZEALL 32646
+#endif
+#if !defined(OCR_NO)
+#define OCR_NO 32648
+#endif
+#if !defined(OCR_HAND)
+#define OCR_HAND 32649
+#endif
+#if !defined(OCR_APPSTARTING)
+#define OCR_APPSTARTING 32650
 #endif
 
 #if !defined(MOUSEEVENTF_HWHEEL)

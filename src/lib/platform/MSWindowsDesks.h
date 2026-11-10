@@ -17,6 +17,11 @@
 #include <string>
 
 #define WIN32_LEAN_AND_MEAN
+// MinGW's winuser.h only declares OCR_* when this is set before Windows.h.
+// MSVC often still sees them; this MinGW build does not.
+#ifndef OEMRESOURCE
+#define OEMRESOURCE
+#endif
 #include <Windows.h>
 
 class Event;
