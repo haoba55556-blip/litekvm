@@ -262,7 +262,7 @@ private:
 
   // update switch state due to a mouse move at \p x, \p y that
   // doesn't switch screens.
-  void noSwitch(int32_t x, int32_t y);
+  void noSwitch(int32_t x, int32_t y, bool keepDragHold = false);
   bool dragEdgeGraceElapsed();
   bool dragSettleActive();
 

@@ -45,6 +45,13 @@ public:
     m_latched = false;
   }
 
+  /// The enter was accepted but the send did not start (busy session, no
+  /// peer). A later DragMove of the same gesture must be allowed to try again.
+  void abandon()
+  {
+    m_latched = false;
+  }
+
   bool transferStarted() const
   {
     return m_started;
@@ -78,23 +85,32 @@ public:
   {
     if (down && !m_down) {
       m_down = true;
-      m_originX = x;
-      m_originY = y;
       m_downMs = nowMs;
+      // The previous poll is the button-down origin when this sample is the
+      // first one that sees the button. A flick that is already at the edge
+      // still counts as a drag, without a low-level hook on the GUI thread
+      // (that hook stalled every injected move on the other computer).
+      if (m_hasLast) {
+        m_originX = m_lastX;
+        m_originY = m_lastY;
+      } else {
+        m_originX = x;
+        m_originY = y;
+      }
       m_moved = false;
-      return;
-    }
-    if (!down) {
+    } else if (!down) {
       m_down = false;
       m_moved = false;
-      return;
     }
-    if (m_moved)
-      return;
-    const qint64 dx = qint64(x) - m_originX;
-    const qint64 dy = qint64(y) - m_originY;
-    if (dx * dx + dy * dy >= qint64(kThresholdPx) * kThresholdPx)
-      m_moved = true;
+    if (m_down && !m_moved) {
+      const qint64 dx = qint64(x) - m_originX;
+      const qint64 dy = qint64(y) - m_originY;
+      if (dx * dx + dy * dy >= qint64(kThresholdPx) * kThresholdPx)
+        m_moved = true;
+    }
+    m_lastX = x;
+    m_lastY = y;
+    m_hasLast = true;
   }
 
   /// Trust a hook that observed the real button-down, not the first poll.
@@ -144,8 +160,11 @@ public:
 private:
   bool m_down = false;
   bool m_moved = false;
+  bool m_hasLast = false;
   int m_originX = 0;
   int m_originY = 0;
+  int m_lastX = 0;
+  int m_lastY = 0;
   qint64 m_downMs = 0;
 };
 

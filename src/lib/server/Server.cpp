@@ -10,12 +10,14 @@
 
 #include "base/IEventQueue.h"
 #include "base/Log.h"
+#include "base/String.h"
 #include "deskflow/AppUtil.h"
 #include "deskflow/DeskflowException.h"
 #include "deskflow/IPlatformScreen.h"
 #include "deskflow/OptionTypes.h"
 #include "deskflow/PacketStreamFilter.h"
 #include "deskflow/ProtocolTypes.h"
+#include "deskflow/ProtocolUtil.h"
 #include "deskflow/Screen.h"
 #include "deskflow/StreamChunker.h"
 #include "deskflow/ipc/CoreIpc.h"
@@ -268,6 +270,14 @@ void Server::adoptClient(BaseClientProxy *client)
   // send configuration options to client
   sendOptions(client);
 
+  // The client's file drag knows this machine as "server" unless we say
+  // otherwise, and then offers the file to this-device.
+  if (auto *proxy = dynamic_cast<ClientProxy *>(client)) {
+    const std::string serverName = getName(m_primaryClient);
+    if (!serverName.empty())
+      ProtocolUtil::writef(proxy->getStream(), kMsgDScreenName, &serverName);
+  }
+
   // activate screen saver on new client if active on the primary screen
   if (m_activeSaver != nullptr) {
     client->screensaver(true);
@@ -394,6 +404,14 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
 {
   assert(dst != nullptr);
 
+  // Same-screen "switches" warp the pointer onto the far edge (1918 on a
+  // 1920-wide screen) and pin it there. The right edge then never reaches
+  // the laptop.
+  if (m_active != nullptr && dst == m_active) {
+    m_dragInsetLanding = false;
+    return;
+  }
+
   int32_t dx;
   int32_t dy;
   int32_t dw;
@@ -435,7 +453,10 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
     m_dragInsetLanding = false;
     const int32_t landedX = x;
     const int32_t landedY = y;
-    insetFromScreenEdge(dx, dy, dw, dh, kDragLandingMargin, x, y);
+    // A fast cross lands several pixels in (the log's 8,675). The 1 px inset
+    // leaves that point inside the edge strip, and the held button bounces
+    // straight back. Pull the whole margin band inward.
+    clampInsideMargin(dx, dy, dw, dh, kDragLandingMargin, x, y);
     m_dragSettle = true;
     m_dragSettleWatch.reset();
     m_dragSettleWatch.start();
@@ -611,6 +632,7 @@ BaseClientProxy *Server::getNeighbor(const BaseClientProxy *src, Direction dir, 
 
   // convert position to fraction
   float t = mapToFraction(src, dir, x, y);
+  const std::string origin = srcName;
 
   // search for the closest neighbor that exists in direction dir
   float tTmp;
@@ -621,8 +643,8 @@ BaseClientProxy *Server::getNeighbor(const BaseClientProxy *src, Direction dir, 
     // destination is the source then we can make no more
     // progress in this direction.  since we haven't found a
     // connected neighbor we return nullptr.
-    if (dstName.empty()) {
-      LOG_VERBOSE("no neighbor on %s of \"%s\"", Config::dirName(dir), srcName.c_str());
+    if (dstName.empty() || deskflow::string::CaselessCmp::equal(dstName, origin)) {
+      LOG_VERBOSE("no neighbor on %s of \"%s\"", Config::dirName(dir), origin.c_str());
       return nullptr;
     }
 
@@ -890,10 +912,14 @@ bool Server::isSwitchOkay(
   return !preventSwitch;
 }
 
-void Server::noSwitch(int32_t x, int32_t y)
+void Server::noSwitch(int32_t x, int32_t y, bool keepDragHold)
 {
-  m_dragEdgeGrace.reset();
-  m_dragEdgeCrossAnnounced = false;
+  // Jitter of a pixel restarts the edge hold, so a held button never
+  // accumulates the grace and the pointer cannot cross.
+  if (!keepDragHold) {
+    m_dragEdgeGrace.reset();
+    m_dragEdgeCrossAnnounced = false;
+  }
   armSwitchTwoTap(x, y);
   stopSwitchWait();
 }
@@ -1762,7 +1788,11 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
   }
   if (dirh == NoDirection && dirv == NoDirection) {
     // still on local screen
-    noSwitch(x, y);
+    const bool keepHold =
+        resetDragEdgeHold(
+            isLockedToScreen(), pointerInEdgeBand(x, y, ax, ay, aw, ah, kDragLandingMargin)
+        ) == false;
+    noSwitch(x, y, keepHold);
     return false;
   }
 
@@ -1779,6 +1809,14 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
     y = ys.at(i);
     // get jump destination
     BaseClientProxy *newScreen = mapToNeighbor(m_active, dir, x, y);
+
+    // A walk that lands on this screen is not a cross. Switching anyway
+    // warps the pointer to the far edge and it never reaches the laptop.
+    if (newScreen == nullptr || newScreen == m_active ||
+        !switchesToOtherScreen(getName(m_active).c_str(), getName(newScreen).c_str())) {
+      stopSwitch();
+      continue;
+    }
 
     // should we switch or not?
     if (isSwitchOkay(newScreen, dir, x, y, xc, yc)) {
@@ -1812,6 +1850,16 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
   assert(m_active != nullptr);
   if (m_active == m_primaryClient) {
     // stale event -- we're actually on the primary screen
+    return;
+  }
+
+  int32_t ax = 0;
+  int32_t ay = 0;
+  int32_t aw = 0;
+  int32_t ah = 0;
+  m_active->getShape(ax, ay, aw, ah);
+  if (isCenterWarpEcho(dx, dy, aw, ah)) {
+    LOG_VERBOSE("dropped center-warp echo on %s: %+d,%+d", getName(m_active).c_str(), dx, dy);
     return;
   }
 
@@ -1853,13 +1901,6 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
   // accumulate motion
   m_x += dx;
   m_y += dy;
-
-  // get screen shape
-  int32_t ax;
-  int32_t ay;
-  int32_t aw;
-  int32_t ah;
-  m_active->getShape(ax, ay, aw, ah);
 
   // find direction of neighbor and get the neighbor
   bool jump = true;
@@ -1923,7 +1964,11 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
         }
         if (clearWait) {
           // still on local screen
-          noSwitch(m_x, m_y);
+          const bool keepHold =
+              resetDragEdgeHold(
+                  isLockedToScreen(), pointerInEdgeBand(m_x, m_y, ax, ay, aw, ah, kDragLandingMargin)
+              ) == false;
+          noSwitch(m_x, m_y, keepHold);
         }
       }
 
@@ -1935,7 +1980,12 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
     newScreen = mapToNeighbor(m_active, dir, m_x, m_y);
 
     // see if we should switch
-    if (dragSettleActive() || !isSwitchOkay(newScreen, dir, m_x, m_y, xc, yc)) {
+    const bool other =
+        newScreen != nullptr && newScreen != m_active &&
+        switchesToOtherScreen(getName(m_active).c_str(), getName(newScreen).c_str());
+    if (!other)
+      stopSwitch();
+    if (dragSettleActive() || !other || !isSwitchOkay(newScreen, dir, m_x, m_y, xc, yc)) {
       newScreen = m_active;
       jump = false;
     }

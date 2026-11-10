@@ -167,7 +167,7 @@ private:
   void setupFileClipboard();
   void applyFileClipboardSettings();
   void requestSendFiles();
-  void sendFiles(const QStringList &paths, bool fromClipboard, const QString &intent = QStringLiteral("clipboard"));
+  bool sendFiles(const QStringList &paths, bool fromClipboard, const QString &intent = QStringLiteral("clipboard"));
   void onLocalFilesCopied(const QStringList &paths, const QString &intent);
   void onFileOfferReceived(
       const QString &peerName, const QStringList &fileNames, qint64 totalBytes, int fileCount, const QString &intent

@@ -21,6 +21,7 @@
 #include "deskflow/StreamChunker.h"
 #include "deskflow/ipc/CoreIpc.h"
 #include "io/IStream.h"
+#include "net/PeerHost.h"
 
 #include <cstring>
 
@@ -136,6 +137,10 @@ ServerProxy::ConnectionResult ServerProxy::parseHandshakeMessage(const uint8_t *
 
   else if (memcmp(code, kMsgCInfoAck, 4) == 0) {
     infoAcknowledgment();
+  }
+
+  else if (memcmp(code, kMsgDScreenName, 4) == 0) {
+    noteServerScreenName();
   }
 
   else if (memcmp(code, kMsgDSetOptions, 4) == 0) {
@@ -296,6 +301,10 @@ ServerProxy::ConnectionResult ServerProxy::parseMessage(const uint8_t *code)
     infoAcknowledgment();
   }
 
+  else if (memcmp(code, kMsgDScreenName, 4) == 0) {
+    noteServerScreenName();
+  }
+
   else if (memcmp(code, kMsgDClipboard, 4) == 0) {
     setClipboard();
   }
@@ -409,6 +418,19 @@ void ServerProxy::flushCompressedMouse()
     m_dxMouse = 0;
     m_dyMouse = 0;
   }
+}
+
+void ServerProxy::noteServerScreenName()
+{
+  std::string name;
+  ProtocolUtil::readf(m_stream, kMsgDScreenName + 4, &name);
+  if (name.empty())
+    return;
+  const std::string host = peerHostOf(m_stream);
+  LOG_INFO("server screen is \"%s\" at %s", name.c_str(), host.c_str());
+  ipcSendToClient(
+      QStringLiteral("peerSocket"), QString::fromStdString(name) + QLatin1Char('|') + QString::fromStdString(host)
+  );
 }
 
 void ServerProxy::sendInfo(const ClientInfo &info)

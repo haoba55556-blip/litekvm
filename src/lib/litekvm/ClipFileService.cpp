@@ -7,6 +7,8 @@
 // status of the handshake (device_id + TrustStore only, channel not encrypted).
 #include "ClipFileService.h"
 
+#include "ClipRoute.h"
+#include "ClipboardFileBridge.h"
 #include "PairingService.h" // PairingService::platformString()
 
 #include <QDateTime>
@@ -179,6 +181,14 @@ quint16 ClipFileService::serverPort() const
   return m_server.serverPort();
 }
 
+void ClipFileService::dropIdleSession()
+{
+  if (m_transfer && m_transfer->isActive())
+    return;
+  if (m_socket || m_transfer)
+    closeSession();
+}
+
 void ClipFileService::sendFilesTo(const QString &host, quint16 port, const QStringList &paths, const QString &intent)
 {
   if (paths.isEmpty()) {
@@ -188,9 +198,20 @@ void ClipFileService::sendFilesTo(const QString &host, quint16 port, const QStri
   // Listening is fine — the same service can reply to an incoming offer while
   // initiating an outgoing one (they use separate sockets, and the
   // m_socket/m_transfer guard above already limits concurrency).
-  if (m_socket || m_transfer) {
+  if (m_transfer && m_transfer->isActive()) {
+    ClipboardFileBridge::traceStage(
+        QStringLiteral("CLIP_OFFER"), QStringLiteral("intent=%1 skipped session-busy").arg(intent)
+    );
     reportError(Error::Busy, QStringLiteral("a session is already live (one transfer at a time)"));
     return;
+  }
+  // A handshake that never finished (the GUI thread was inside a drag) keeps
+  // the socket and every later drag logs "sending" without a CLIP_OFFER.
+  if (m_socket || m_transfer) {
+    ClipboardFileBridge::traceStage(
+        QStringLiteral("CLIP_OFFER"), QStringLiteral("intent=%1 dropped idle session").arg(intent)
+    );
+    closeSession();
   }
 
   m_pendingPaths = paths;
@@ -581,6 +602,12 @@ void ClipFileService::notePeerSeen(const QString &deviceId, const QHostAddress &
     updated.lastSeen = QDateTime::currentDateTimeUtc();
     const QString normalized = DiscoveryService::normalizeHost(address.toString());
     updated.lastAddr = normalized.isEmpty() ? address.toString() : normalized;
+    // Pairing stored the peer as "this-device". The handshake name is the
+    // other computer; keep it so the next drag does not offer to this machine.
+    if (isPlaceholderPeerName(updated.name) && !isPlaceholderPeerName(m_peerName) &&
+        m_peerName.compare(m_self.name(), Qt::CaseInsensitive) != 0) {
+      updated.name = m_peerName;
+    }
     m_trust.upsert(updated);
   }
 }

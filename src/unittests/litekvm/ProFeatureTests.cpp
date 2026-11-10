@@ -12,10 +12,12 @@
 #include "../../lib/litekvm/ElevatedCore.h"
 #include "../../lib/litekvm/LanNic.h"
 #include "../../lib/litekvm/MdnsAdvertiser.h"
+#include "../../lib/litekvm/DropFileLand.h"
 #include "../../lib/litekvm/RemoteDragDrop.h"
 #include "../../lib/litekvm/RoleNegotiation.h"
 #include "../../lib/litekvm/TrustStore.h"
 
+#include <QFile>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -203,10 +205,12 @@ private Q_SLOTS:
     QVERIFY(MdnsAdvertiser::kAnnounceIntervalMs <= 5000);
   }
 
-  void mouseAppliesNowUnlessMoreInputIsBuffered()
+  void mouseAppliesNowEvenWhenMoreInputIsBuffered()
   {
+    // A continuous move keeps the next packet already readable. Waiting for a
+    // gap freezes the pointer until the hand pauses.
     QVERIFY(shouldApplyMouseNow(false));
-    QVERIFY(!shouldApplyMouseNow(true));
+    QVERIFY(shouldApplyMouseNow(true));
   }
 
   void dragEnterStartsTransferAndLeaveDoesNotCancel()
@@ -226,6 +230,9 @@ private Q_SLOTS:
     gate.onButtonReleased();
     QVERIFY(!gate.latched());
     QVERIFY(gate.onEnter(files, 1300));
+    gate.abandon();
+    QVERIFY(!gate.latched());
+    QVERIFY(gate.onEnter(files, 1400));
   }
 
   void edgeStripStaysHiddenUntilTheDragMoves()
@@ -255,6 +262,14 @@ private Q_SLOTS:
     QVERIFY(EdgeStripArm::nearEdge(0, 400, 0, 0, 1920, 1080, EdgeStripArm::kNearEdgePx));
     QVERIFY(EdgeStripArm::nearEdge(960, 10, 0, 0, 1920, 1080, EdgeStripArm::kNearEdgePx));
     QVERIFY(!EdgeStripArm::nearEdge(960, 400, 0, 0, 1920, 1080, EdgeStripArm::kNearEdgePx));
+
+    // Movement between the button-up sample and the first button-down sample
+    // is a drag. No low-level hook is required to see it.
+    EdgeStripArm flick;
+    flick.setButtonDown(false, 400, 400, 0);
+    flick.setButtonDown(true, 400 + EdgeStripArm::kThresholdPx, 400, 16);
+    QVERIFY(flick.moved());
+    QVERIFY(flick.shouldShow(true, 16, false));
   }
 
   void remoteDragCopiesOnReleaseWithoutBlocking()
@@ -351,6 +366,12 @@ private Q_SLOTS:
     QCOMPARE(
         clipPeerLabel(QStringLiteral("this-device"), QStringLiteral("server"), QStringLiteral("DESKTOP-9GM1608")),
         QStringLiteral("this-device")
+    );
+    QCOMPARE(
+        clipPeerLabel(
+            QStringLiteral("this-device"), QStringLiteral("DESKTOP-9GM1608"), QStringLiteral("LAPTOP-8BPR9V7N")
+        ),
+        QStringLiteral("DESKTOP-9GM1608")
     );
     QCOMPARE(
         clipPeerLabel(QStringLiteral("real-laptop"), QStringLiteral("server"), QStringLiteral("DESKTOP-9GM1608")),
@@ -498,6 +519,80 @@ private Q_SLOTS:
     QVERIFY(!clampInsideMargin(0, 0, 1920, 1080, kDragLandingMargin, x, y));
     QCOMPARE(x, 960);
     QCOMPARE(y, 540);
+
+    // The host's right edge must name the laptop, never the host. A resolved
+    // neighbor of the active screen is the self-switch that warped to x=1918.
+    QVERIFY(switchesToOtherScreen("DESKTOP-9GM1608", "LAPTOP-8BPR9V7N"));
+    QVERIFY(!switchesToOtherScreen("DESKTOP-9GM1608", "DESKTOP-9GM1608"));
+    QVERIFY(!switchesToOtherScreen("DESKTOP-9GM1608", "desktop-9gm1608"));
+    QVERIFY(!switchesToOtherScreen("DESKTOP-9GM1608", nullptr));
+    QVERIFY(!switchesToOtherScreen("DESKTOP-9GM1608", ""));
+
+    // A fast cross lands at x=8, inside the 1 px inset and still in the edge
+    // strip. The held button then bounces. The margin band has to move it.
+    x = 8;
+    y = 675;
+    QVERIFY(clampInsideMargin(0, 0, 1920, 1080, kDragLandingMargin, x, y));
+    QCOMPARE(x, kDragLandingMargin);
+    QCOMPARE(y, 675);
+    x = 1918;
+    y = 400;
+    QVERIFY(clampInsideMargin(0, 0, 1920, 1080, kDragLandingMargin, x, y));
+    QCOMPARE(x, 1920 - 1 - kDragLandingMargin);
+
+    QVERIFY(isCenterWarpEcho(-959, 0, 1920, 1080));
+    QVERIFY(isCenterWarpEcho(900, 1, 1920, 1080));
+    QVERIFY(!isCenterWarpEcho(-12, 4, 1920, 1080));
+    QVERIFY(!isCenterWarpEcho(40, -80, 1920, 1080));
+
+    QVERIFY(!resetDragEdgeHold(true, true));
+    QVERIFY(resetDragEdgeHold(true, false));
+    QVERIFY(resetDragEdgeHold(false, true));
+    QVERIFY(pointerInEdgeBand(8, 675, 0, 0, 1920, 1080, kDragLandingMargin));
+    QVERIFY(!pointerInEdgeBand(960, 540, 0, 0, 1920, 1080, kDragLandingMargin));
+  }
+
+  void landedFileIsClosedAndAFailedCopyLeavesNothing()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString source = dir.filePath(QStringLiteral("photo.jpg"));
+    QFile src(source);
+    QVERIFY(src.open(QIODevice::WriteOnly));
+    const QByteArray bytes(236, '\x42');
+    QCOMPARE(src.write(bytes), qint64(bytes.size()));
+    src.close();
+
+    const QString destDir = dir.filePath(QStringLiteral("desk"));
+    QVERIFY(QDir().mkpath(destDir));
+    const QString kept = destDir + QStringLiteral("/photo.jpg");
+    QFile existing(kept);
+    QVERIFY(existing.open(QIODevice::WriteOnly));
+    QCOMPARE(existing.write(QByteArrayLiteral("keep")), qint64(4));
+    existing.close();
+
+    const LandedFile mismatch = landFinishedFile(source, destDir, 1);
+    QVERIFY(!mismatch.ok);
+    QCOMPARE(QFileInfo(kept).size(), qint64(4));
+
+    const LandedFile part = landFinishedFile(source + QStringLiteral(".litekvm-part"), destDir, bytes.size());
+    QVERIFY(!part.ok);
+
+    const LandedFile missing = landFinishedFile(source, dir.filePath(QStringLiteral("no-such")), bytes.size());
+    QVERIFY(!missing.ok);
+
+    const LandedFile landed = landFinishedFile(source, destDir, bytes.size());
+    QVERIFY(landed.ok);
+    QVERIFY(landed.path.endsWith(QStringLiteral("photo (1).jpg")));
+    QFile out(landed.path);
+    QVERIFY(out.open(QIODevice::ReadOnly));
+    QCOMPARE(out.readAll(), bytes);
+    out.close();
+    QVERIFY(!QFile::exists(landed.path + QStringLiteral(".litekvm-part")));
+    QFile keptFile(kept);
+    QVERIFY(keptFile.open(QIODevice::ReadOnly));
+    QCOMPARE(keptFile.readAll(), QByteArray("keep"));
+    keptFile.close();
   }
 
   void roleFailsOverAfterHysteresis()

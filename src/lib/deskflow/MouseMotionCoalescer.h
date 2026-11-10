@@ -20,14 +20,18 @@
  * (a few milliseconds, or immediately on a button).
  */
 /**
- * Apply a mouse sample now when the socket has no further message already
- * buffered. Coalesce only while more input is already in hand — never defer
- * on a timer. Windows' default timer tick is ~15.6 ms, so a "4 ms" timer
- * quantizes the pointer.
+ * Apply every mouse sample as it is parsed.
+ *
+ * Waiting until the socket has nothing buffered freezes the cursor for the
+ * whole burst: a continuous move keeps the next packet already readable, so
+ * the pointer only catches up when the hand pauses. That is the stutter on
+ * the client. Callers still keep only the newest absolute position, and there
+ * is no timer — Windows' default tick is ~15.6 ms and was quantizing motion.
  */
 inline bool shouldApplyMouseNow(bool moreInputAlreadyBuffered)
 {
-  return !moreInputAlreadyBuffered;
+  (void)moreInputAlreadyBuffered;
+  return true;
 }
 
 class MouseMotionCoalescer

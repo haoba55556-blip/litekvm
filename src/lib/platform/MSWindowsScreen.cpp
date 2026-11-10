@@ -20,6 +20,7 @@
 #include "deskflow/App.h"
 #include "deskflow/ClientApp.h"
 #include "deskflow/Clipboard.h"
+#include "deskflow/JumpZoneMouse.h"
 #include "deskflow/KeyMap.h"
 #include "deskflow/ScreenException.h"
 #include "platform/MSWindowsClipboard.h"
@@ -1265,17 +1266,10 @@ bool MSWindowsScreen::onMouseMove(int32_t mx, int32_t my)
     LOG_VERBOSE("centering cursor on motion: %+d,%+d", m_xCenter, m_yCenter);
     warpCursorNoFlush(m_xCenter, m_yCenter);
 
-    // examine the motion.  if it's about the distance
-    // from the center of the screen to an edge then
-    // it's probably a bogus motion that we want to
-    // ignore (see warpCursorNoFlush() for a further
-    // description).
-    static int32_t bogusZoneSize = 10;
-    if (-x + bogusZoneSize > m_xCenter - m_x || x + bogusZoneSize > m_x + m_w - m_xCenter ||
-        -y + bogusZoneSize > m_yCenter - m_y || y + bogusZoneSize > m_y + m_h - m_yCenter) {
-
-      // Expected echo of the center warp, once per real move. Debug logging
-      // would format it on the hook thread and stall the pointer.
+    // The center warp is about half a screen. A check that only drops
+    // deltas within 10 px of that distance lets a DPI-rounded warp through,
+    // and the other machine's pointer is thrown back across the edge.
+    if (isCenterWarpEcho(x, y, m_w, m_h)) {
       LOG_VERBOSE("dropped bogus delta motion: %+d,%+d", x, y);
     } else {
       // send motion

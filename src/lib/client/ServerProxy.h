@@ -100,6 +100,7 @@ private:
   void setOptions();
   void queryInfo();
   void infoAcknowledgment();
+  void noteServerScreenName();
   void secureInputNotification();
   void setServerLanguages();
   void setActiveServerLanguage(const std::string_view &language);

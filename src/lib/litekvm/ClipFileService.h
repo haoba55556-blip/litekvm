@@ -138,6 +138,8 @@ public:
   void sendFilesTo(
       const QString &host, quint16 port, const QStringList &paths, const QString &intent = QStringLiteral("clipboard")
   );
+  /// Close a socket that is not moving bytes, so the next drag can offer.
+  void dropIdleSession();
 
   // ------------------------------------------------- receiver-side actions
   /// Answer the current CLIP_OFFER; a no-op when no transfer is live. The

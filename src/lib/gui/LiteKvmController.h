@@ -93,6 +93,8 @@ public Q_SLOTS:
   void sendFilesToPeer(
       const QString &deviceId, const QStringList &paths, const QString &intent = QStringLiteral("clipboard")
   );
+  /// Drop a file session that never started moving bytes.
+  void dropIdleFileSession();
   /// 接受对端发来的 offer（收到 fileOfferReceived 之后调用）。
   void acceptIncomingFiles();
   /// 拒绝对端发来的 offer。

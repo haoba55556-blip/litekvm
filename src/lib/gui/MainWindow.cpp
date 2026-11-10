@@ -34,6 +34,7 @@
 #include "gui/ipc/DaemonIpcClient.h"
 #include "gui/widgets/CollapsiblePanel.h"
 #include "gui/widgets/EdgeFileDrop.h"
+#include "litekvm/DropFileLand.h"
 #include "gui/widgets/LogDock.h"
 #include "litekvm/AutoStart.h"
 #include "litekvm/ClipRoute.h"
@@ -1575,10 +1576,16 @@ void MainWindow::onEdgeFilesDragged(const QStringList &paths)
         QStringLiteral("sendFiles"),
         QStringLiteral("intent=drag skipped enabled=%1 paths=%2").arg(m_fileClipboardEnabled ? 1 : 0).arg(paths.size())
     );
+    if (m_edgeDrop)
+      m_edgeDrop->abandonDrag();
     return;
   }
-  // Drag is a gesture: don't stop to ask. The other side auto-accepts intent=drag.
-  sendFiles(paths, true, QStringLiteral("drag"));
+  // Return to the drag loop first. Connecting from inside DragEnter left the
+  // offer unsent when the thread could not finish the handshake.
+  QTimer::singleShot(0, this, [this, paths] {
+    if (!sendFiles(paths, true, QStringLiteral("drag")) && m_edgeDrop)
+      m_edgeDrop->abandonDrag();
+  });
 }
 
 namespace {
@@ -1695,22 +1702,11 @@ QString shellFolderAtCursor(QString *windowClass)
 QString placeFilesInFolder(const QStringList &paths, const QString &directory)
 {
   QStringList landed;
-  QDir dir(directory);
-  if (!dir.exists())
-    return {};
   for (const QString &path : paths) {
-    const QFileInfo info(path);
-    QString dest = dir.filePath(info.fileName());
-    if (QFileInfo::exists(dest) && QFileInfo(dest).size() == info.size()) {
-      landed.append(QDir::toNativeSeparators(QFileInfo(dest).absoluteFilePath()));
-      continue;
-    }
-    if (QFileInfo::exists(dest)) {
-      const QString suffix = info.suffix().isEmpty() ? QString() : QStringLiteral(".") + info.suffix();
-      dest = dir.filePath(info.completeBaseName() + QStringLiteral("-litekvm") + suffix);
-    }
-    if (QFile::copy(path, dest) && QFileInfo::exists(dest))
-      landed.append(QDir::toNativeSeparators(QFileInfo(dest).absoluteFilePath()));
+    const qint64 size = QFileInfo(path).size();
+    const litekvm::LandedFile file = litekvm::landFinishedFile(path, directory, size);
+    if (file.ok)
+      landed.append(file.path);
   }
   return landed.join(QLatin1Char(';'));
 }
@@ -1900,7 +1896,7 @@ void MainWindow::requestSendFiles()
   sendFiles(paths, false);
 }
 
-void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const QString &intent)
+bool MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const QString &intent)
 {
   const QString wireIntent = intent.isEmpty() ? QStringLiteral("clipboard") : intent;
   litekvm::ClipboardFileBridge::traceStage(
@@ -1911,8 +1907,11 @@ void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const Q
         QStringLiteral("sendFiles"),
         QStringLiteral("intent=%1 aborted no-controller-or-disabled-or-empty").arg(wireIntent)
     );
-    return;
+    return false;
   }
+
+  if (wireIntent == QLatin1String("drag"))
+    m_liteKvmController->dropIdleFileSession();
 
   const auto report = [this, fromClipboard](const QString &message) {
     if (fromClipboard)
@@ -1926,7 +1925,7 @@ void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const Q
         QStringLiteral("sendFiles"), QStringLiteral("intent=%1 aborted transfer-active").arg(wireIntent)
     );
     report(tr("已经有一个文件传输在进行中，等它结束再发送吧。"));
-    return;
+    return false;
   }
 
   const qint64 totalBytes = localFilesSize(paths);
@@ -1941,7 +1940,7 @@ void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const Q
                    ClipTransferDialog::formatBytes(quint64(totalBytes)),
                    ClipTransferDialog::formatBytes(quint64(maxBytes))
                ));
-    return;
+    return false;
   }
 
   const QList<LiteKvmController::ClipTarget> targets = m_liteKvmController->clipTargets();
@@ -1951,10 +1950,10 @@ void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const Q
     );
     if (fromClipboard) {
       notifyUser(tr("剪贴板里有文件，但附近没有已配对的电脑，未发送。"));
-      return;
+      return false;
     }
     report(tr("附近没有已配对的电脑，先在「附近的电脑」里配对一台再发文件。"));
-    return;
+    return false;
   }
 
   QString deviceId;
@@ -1978,7 +1977,7 @@ void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const Q
       litekvm::ClipboardFileBridge::traceStage(
           QStringLiteral("sendFiles"), QStringLiteral("intent=%1 aborted target-not-chosen").arg(wireIntent)
       );
-      return;
+      return false;
     }
     deviceId = targets.at(index).deviceId;
     peerName = targets.at(index).name;
@@ -1990,7 +1989,7 @@ void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const Q
         QStringLiteral("sendFiles"),
         QStringLiteral("intent=%1 aborted self-host peer=%2 host=%3").arg(wireIntent, peerName, peerHost)
     );
-    return;
+    return false;
   }
 
   const bool drag = wireIntent == QLatin1String("drag");
@@ -2003,7 +2002,7 @@ void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const Q
       litekvm::ClipboardFileBridge::traceStage(
           QStringLiteral("sendFiles"), QStringLiteral("intent=%1 aborted user-declined").arg(wireIntent)
       );
-      return;
+      return false;
     }
   }
 
@@ -2013,6 +2012,7 @@ void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const Q
   );
   beginTransferUi(true, peerName, quint64(totalBytes));
   m_liteKvmController->sendFilesToPeer(deviceId, paths, wireIntent);
+  return true;
 }
 
 void MainWindow::onLocalFilesCopied(const QStringList &paths, const QString &intent)

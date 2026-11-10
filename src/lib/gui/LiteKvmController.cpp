@@ -240,7 +240,12 @@ void LiteKvmController::setupFileClipboard()
   });
 
   connect(m_clipFile, &litekvm::ClipFileService::errorOccurred, this, [this](const QString &message) {
-    m_transferActive = false;
+    // A busy error must not clear the flag while the other transfer is still
+    // the live session — the next drag would log "sending" and then drop the
+    // CLIP_OFFER because the socket is still held.
+    const bool live = m_clipFile && m_clipFile->transfer() && m_clipFile->transfer()->isActive();
+    if (!live)
+      m_transferActive = false;
     Q_EMIT fileClipboardError(message);
   });
 
@@ -308,11 +313,16 @@ void LiteKvmController::applyFileClipboardSettings()
 
 bool LiteKvmController::transferActive() const
 {
-  if (!m_transferActive)
-    return false;
-  if (m_clipFile && !m_clipFile->hasSession())
-    return false;
-  return true;
+  return m_clipFile && m_clipFile->transfer() && m_clipFile->transfer()->isActive();
+}
+
+void LiteKvmController::dropIdleFileSession()
+{
+  if (!m_clipFile)
+    return;
+  m_clipFile->dropIdleSession();
+  if (!m_clipFile->hasSession())
+    m_transferActive = false;
 }
 
 QList<LiteKvmController::ClipTarget> LiteKvmController::clipTargets() const

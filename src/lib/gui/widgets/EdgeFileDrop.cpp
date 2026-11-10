@@ -37,55 +37,10 @@ namespace deskflow::gui {
 namespace {
 
 #ifdef Q_OS_WIN
-struct WinDragSample
-{
-  bool down = false;
-  bool moved = false;
-  POINT origin{};
-};
-
-WinDragSample g_winDrag;
-HHOOK g_armHook = nullptr;
-
-LRESULT CALLBACK edgeArmHook(int code, WPARAM wParam, LPARAM lParam)
-{
-  if (code >= 0) {
-    const auto *info = reinterpret_cast<MSLLHOOKSTRUCT *>(lParam);
-    if (wParam == WM_LBUTTONDOWN) {
-      g_winDrag.down = true;
-      g_winDrag.moved = false;
-      g_winDrag.origin = info->pt;
-    } else if (wParam == WM_LBUTTONUP) {
-      g_winDrag.down = false;
-      g_winDrag.moved = false;
-    } else if (wParam == WM_MOUSEMOVE && g_winDrag.down && !g_winDrag.moved) {
-      const qint64 dx = qint64(info->pt.x) - g_winDrag.origin.x;
-      const qint64 dy = qint64(info->pt.y) - g_winDrag.origin.y;
-      const qint64 threshold = litekvm::EdgeStripArm::kThresholdPx;
-      if (dx * dx + dy * dy >= threshold * threshold)
-        g_winDrag.moved = true;
-    }
-  }
-  // Always pass the event on. The core's hook decides whether to eat it.
-  return CallNextHookEx(g_armHook, code, wParam, lParam);
-}
-
-void installArmHook()
-{
-  if (g_armHook != nullptr)
-    return;
-  g_winDrag = {};
-  g_armHook = SetWindowsHookExW(WH_MOUSE_LL, edgeArmHook, GetModuleHandleW(nullptr), 0);
-}
-
-void removeArmHook()
-{
-  if (g_armHook == nullptr)
-    return;
-  UnhookWindowsHookEx(g_armHook);
-  g_armHook = nullptr;
-  g_winDrag = {};
-}
+// No WH_MOUSE_LL here. A low-level hook on this GUI thread runs for every
+// injected move on the client, and the thread is also copying files, so the
+// pointer stutters for as long as the hook cannot return. The arm timer
+// samples the button instead.
 
 void applyWindowsLayer(QWidget *strip, bool hitTest)
 {
@@ -281,9 +236,6 @@ EdgeFileDrop::~EdgeFileDrop()
 {
   if (m_armTimer != nullptr)
     m_armTimer->stop();
-#ifdef Q_OS_WIN
-  removeArmHook();
-#endif
   destroyStrips();
 }
 
@@ -295,15 +247,9 @@ void EdgeFileDrop::setEnabled(bool on)
   if (!on) {
     m_armTimer->stop();
     m_armed = false;
-#ifdef Q_OS_WIN
-    removeArmHook();
-#endif
     destroyStrips();
     return;
   }
-#ifdef Q_OS_WIN
-  installArmHook();
-#endif
   rebuild();
   m_armTimer->start();
   if (auto *app = qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
@@ -326,6 +272,11 @@ void EdgeFileDrop::beginDrag(const QStringList &paths)
 void EdgeFileDrop::noteDragLeft()
 {
   m_gate.onLeave();
+}
+
+void EdgeFileDrop::abandonDrag()
+{
+  m_gate.abandon();
 }
 
 void EdgeFileDrop::setStripsArmed(bool on)
@@ -382,23 +333,11 @@ void EdgeFileDrop::pollDragArm()
   const QPoint pos = QCursor::pos();
   const qint64 now = QDateTime::currentMSecsSinceEpoch();
   const bool wasDown = m_arm.buttonDown();
-  bool allowHold = true;
-#ifdef Q_OS_WIN
-  if (g_armHook != nullptr) {
-    // The hook saw the real button-down, so a flick that is already at the
-    // edge on the first poll still counts as a drag. A click does not.
-    m_arm.observe(g_winDrag.down, g_winDrag.moved, now);
-    allowHold = false;
-  } else {
-    m_arm.setButtonDown(leftButtonDown(), pos.x(), pos.y(), now);
-  }
-#else
   m_arm.setButtonDown(leftButtonDown(), pos.x(), pos.y(), now);
-#endif
   if (wasDown && !m_arm.buttonDown())
     m_gate.onButtonReleased();
 
-  bool near = false;
+  bool nearEdge = false;
   if (m_arm.buttonDown()) {
     for (QScreen *screen : QGuiApplication::screens()) {
       if (screen == nullptr)
@@ -407,12 +346,12 @@ void EdgeFileDrop::pollDragArm()
       if (litekvm::EdgeStripArm::nearEdge(
               pos.x(), pos.y(), geom.left(), geom.top(), geom.width(), geom.height(), litekvm::EdgeStripArm::kNearEdgePx
           )) {
-        near = true;
+        nearEdge = true;
         break;
       }
     }
   }
-  setStripsArmed(m_arm.shouldShow(near, now, allowHold));
+  setStripsArmed(m_arm.shouldShow(nearEdge, now, true));
 }
 
 QWidget *EdgeFileDrop::dragSource() const

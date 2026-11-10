@@ -65,6 +65,8 @@ public:
   /// DragEnter/Drop. Debounced for one gesture; does not wait for a dwell.
   void beginDrag(const QStringList &paths);
   void noteDragLeft();
+  /// The enter latched, but the file send did not start.
+  void abandonDrag();
 
   /// While a remote drop is being placed, the strips must not be the window
   /// under the cursor. They are Qt::Tool and otherwise hide the desktop

@@ -17,6 +17,66 @@ inline bool eatJumpZoneMouseMove(bool insideJumpZone, bool bogusPosition, bool a
   return insideJumpZone && !bogusPosition && !anyMouseButtonDown;
 }
 
+// A resolved neighbor that is the screen we are already on is not a cross.
+// switchScreen used to accept it and warp the pointer to the far edge
+// (width - 1 - jump zone, 1918 on a 1920-wide screen), which pins it there.
+inline bool sameScreenName(const char *a, const char *b)
+{
+  if (a == nullptr || b == nullptr)
+    return false;
+  while (*a != '\0' && *b != '\0') {
+    char ca = *a;
+    char cb = *b;
+    if (ca >= 'A' && ca <= 'Z')
+      ca = static_cast<char>(ca - 'A' + 'a');
+    if (cb >= 'A' && cb <= 'Z')
+      cb = static_cast<char>(cb - 'A' + 'a');
+    if (ca != cb)
+      return false;
+    ++a;
+    ++b;
+  }
+  return *a == '\0' && *b == '\0';
+}
+
+inline bool switchesToOtherScreen(const char *active, const char *candidate)
+{
+  if (candidate == nullptr || candidate[0] == '\0')
+    return false;
+  return !sameScreenName(active, candidate);
+}
+
+// The primary hides its cursor by warping to the center. That sample is about
+// half a screen wide. The old check only dropped deltas within 10 px of that
+// distance, so a DPI-rounded warp was applied on the other machine and threw
+// the pointer back across the edge.
+inline bool isCenterWarpEcho(int32_t dx, int32_t dy, int32_t width, int32_t height)
+{
+  const int32_t limitX = width > 4 ? width / 4 : 1;
+  const int32_t limitY = height > 4 ? height / 4 : 1;
+  return dx >= limitX || dx <= -limitX || dy >= limitY || dy <= -limitY;
+}
+
+inline bool pointerInEdgeBand(
+    int32_t x, int32_t y, int32_t left, int32_t top, int32_t width, int32_t height, int32_t band
+)
+{
+  if (width < 1 || height < 1 || band < 1)
+    return false;
+  const int32_t right = left + width;
+  const int32_t bottom = top + height;
+  return x < left + band || y < top + band || x >= right - band || y >= bottom - band;
+}
+
+// A held button at the edge must keep its switch hold across 1 px of jitter.
+// Resetting on every sample outside the jump zone restarts the hold forever.
+inline bool resetDragEdgeHold(bool buttonDown, bool inEdgeBand)
+{
+  if (!buttonDown)
+    return true;
+  return !inEdgeBand;
+}
+
 // Hold the screen switch briefly after the cursor hits the edge with a button
 // down, long enough for the edge strip to receive DragEnter, then let the
 // cursor cross while the button is still held so the other machine can drop.
