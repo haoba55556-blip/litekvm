@@ -12,6 +12,7 @@
 #include "../../lib/litekvm/ElevatedCore.h"
 #include "../../lib/litekvm/LanNic.h"
 #include "../../lib/litekvm/MdnsAdvertiser.h"
+#include "../../lib/litekvm/DragLandGate.h"
 #include "../../lib/litekvm/DropFileLand.h"
 #include "../../lib/litekvm/RemoteDragDrop.h"
 #include "../../lib/litekvm/RoleNegotiation.h"
@@ -593,6 +594,34 @@ private Q_SLOTS:
     QVERIFY(keptFile.open(QIODevice::ReadOnly));
     QCOMPARE(keptFile.readAll(), QByteArray("keep"));
     keptFile.close();
+  }
+
+  void serverHoldsADragUntilThePointerReturns()
+  {
+    DragLandGate gate;
+    QString reason;
+    const QStringList immediate = gate.receiveDrag({QStringLiteral("a.jpg")}, &reason);
+    QCOMPARE(immediate, QStringList{QStringLiteral("a.jpg")});
+    QCOMPARE(reason, QStringLiteral("pointer-local"));
+    QVERIFY(gate.waiting().isEmpty());
+
+    gate.setPointerLocal(false);
+    const QStringList held = gate.receiveDrag({QStringLiteral("b.jpg")}, &reason);
+    QVERIFY(held.isEmpty());
+    QCOMPARE(reason, QStringLiteral("deferred-pointer-remote"));
+    QCOMPARE(gate.waiting(), QStringList{QStringLiteral("b.jpg")});
+    // A later outbound send must not throw the waiting payload away.
+    QCOMPARE(gate.takeIfPointerLocal(&reason), QStringList());
+    QCOMPARE(reason, QStringLiteral("still-remote"));
+    QCOMPARE(gate.waiting(), QStringList{QStringLiteral("b.jpg")});
+
+    gate.setPointerLocal(true);
+    const QStringList landed = gate.takeIfPointerLocal(&reason);
+    QCOMPARE(landed, QStringList{QStringLiteral("b.jpg")});
+    QCOMPARE(reason, QStringLiteral("pointer-arrived"));
+    QVERIFY(gate.waiting().isEmpty());
+    QCOMPARE(gate.takeIfPointerLocal(&reason), QStringList());
+    QCOMPARE(reason, QStringLiteral("nothing-waiting"));
   }
 
   void roleFailsOverAfterHysteresis()

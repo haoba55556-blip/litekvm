@@ -589,6 +589,67 @@ private Q_SLOTS:
     client.stop();
   }
 
+  void listeningClientStillSendsTheOffer()
+  {
+    Node serverNode, clientNode;
+    QVERIFY(serverNode.init());
+    QVERIFY(clientNode.init());
+    pairTrust(serverNode, clientNode);
+
+    QTemporaryDir incoming, source;
+    QVERIFY(incoming.isValid());
+    QVERIFY(source.isValid());
+    const QByteArray content = pseudoRandom(32 * 1024, 11);
+    const QString path = writeTempFile(source.path() + QStringLiteral("/photo.jpg"), content);
+    QVERIFY(!path.isEmpty());
+
+    QSemaphore serverDone, clientDone;
+    QStringList log, landed;
+
+    ClipFileService server(*serverNode.identity, *serverNode.store);
+    ClipFileService client(*clientNode.identity, *clientNode.store);
+    server.setIncomingDirectory(incoming.path());
+    server.setAutoAccept(true);
+    client.setAutoAccept(true);
+
+    connect(&server, &ClipFileService::transferCompleted, [&](const QStringList &paths, const QString &) {
+      landed = paths;
+      serverDone.release();
+    });
+    connect(&client, &ClipFileService::transferCompleted, [&](const QStringList &, const QString &) {
+      clientDone.release();
+    });
+    connect(&server, &ClipFileService::transferFailed, [&](ClipFileTransfer::Error, const QString &detail) {
+      log << QStringLiteral("server ") + detail;
+    });
+    connect(&client, &ClipFileService::transferFailed, [&](ClipFileTransfer::Error, const QString &detail) {
+      log << QStringLiteral("client ") + detail;
+    });
+    connect(&server, &ClipFileService::errorOccurred, [&](const QString &message) { log << message; });
+    connect(&client, &ClipFileService::errorOccurred, [&](const QString &message) { log << message; });
+
+    // The laptop listens for host→laptop and also sends laptop→host.
+    QVERIFY(client.listen(0));
+    QVERIFY(client.isListening());
+    if (!server.listen(ClipFileService::defaultPort()))
+      QVERIFY(server.listen(0));
+
+    client.sendFilesTo(QStringLiteral("127.0.0.1"), server.serverPort(), {path}, QStringLiteral("drag"));
+    QVERIFY2(spin(serverDone, log), qPrintable(log.join(QStringLiteral(" | "))));
+    QVERIFY2(spin(clientDone, log), qPrintable(log.join(QStringLiteral(" | "))));
+    QCOMPARE(landed.size(), 1);
+    QFile received(landed.at(0));
+    QVERIFY(received.open(QIODevice::ReadOnly));
+    QCOMPARE(received.readAll(), content);
+    received.close();
+    QCOMPARE(QFileInfo(landed.at(0)).size(), qint64(content.size()));
+    QCOMPARE(countPartFiles(incoming.path()), 0);
+    QVERIFY(client.isListening());
+
+    server.stop();
+    client.stop();
+  }
+
 private:
   /// Spins the event loop until @p sem is released (or the timeout expires).
   static bool spin(QSemaphore &sem, const QStringList &log, int timeoutMs = 20000)

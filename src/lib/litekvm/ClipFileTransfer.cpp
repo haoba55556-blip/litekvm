@@ -28,6 +28,21 @@ namespace litekvm {
 namespace {
 constexpr int kProgressThrottleMs = 50;
 constexpr int kMinHighWaterMark = 64 * 1024;
+
+/// Bytes open() will read. QFileInfo::size() follows a Windows shortcut.
+bool readableFileSize(const QString &path, qint64 *size, QString *error)
+{
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly)) {
+    if (error != nullptr)
+      *error = file.errorString();
+    return false;
+  }
+  if (size != nullptr)
+    *size = file.size();
+  file.close();
+  return true;
+}
 } // namespace
 
 // ---------------------------------------------------------------- helpers
@@ -302,6 +317,9 @@ void ClipFileTransfer::failed(Error error, const QString &detail)
   if (m_state == State::Failed || m_state == State::Cancelled)
     return; // first failure wins
   m_lastError = error;
+  ClipboardFileBridge::traceStage(
+      QStringLiteral("transfer-failed"), QStringLiteral("error=%1 detail=%2").arg(toString(error), detail)
+  );
   cleanupPartial(true);
   m_state = State::Failed;
   Q_EMIT transferFailed(error, detail);
@@ -499,15 +517,20 @@ bool ClipFileTransfer::stagePaths(const QStringList &paths)
       return false;
     }
 
-    if (info.isFile()) {
-      if (!appendEntry(baseName, info.size(), false, info.absoluteFilePath(), &total))
+    if (!info.isDir()) {
+      // QFileInfo::isFile() is false for some cloud placeholders, and
+      // QFileInfo::size() follows a Windows shortcut to the target. The offer
+      // must be the bytes open() will actually read, or the receiver deletes
+      // the part file on a size mismatch and never starts the drop.
+      qint64 size = 0;
+      QString openError;
+      if (!readableFileSize(info.absoluteFilePath(), &size, &openError)) {
+        failed(Error::Io, QStringLiteral("cannot open %1: %2").arg(path, openError));
+        return false;
+      }
+      if (!appendEntry(baseName, size, false, info.absoluteFilePath(), &total))
         return false;
       continue;
-    }
-
-    if (!info.isDir()) {
-      failed(Error::Io, QStringLiteral("not a regular file: %1").arg(path));
-      return false;
     }
 
     // directories: keep the folder itself (so empty folders survive) plus the
@@ -528,11 +551,14 @@ bool ClipFileTransfer::stagePaths(const QStringList &paths)
       if (childInfo.isDir()) {
         if (!appendEntry(rel, 0, true, childInfo.absoluteFilePath(), &total))
           return false;
-      } else if (childInfo.isFile()) {
-        if (!appendEntry(rel, childInfo.size(), false, childInfo.absoluteFilePath(), &total))
+      } else {
+        qint64 childSize = 0;
+        QString openError;
+        if (!readableFileSize(childInfo.absoluteFilePath(), &childSize, &openError))
+          continue; // sockets and devices are skipped on purpose
+        if (!appendEntry(rel, childSize, false, childInfo.absoluteFilePath(), &total))
           return false;
       }
-      // sockets/devices/symlinks are skipped on purpose
     }
   }
   return true;

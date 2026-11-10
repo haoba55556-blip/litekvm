@@ -10,6 +10,7 @@
 
 #include "arch/Arch.h"
 #include "arch/IArchMultithread.h"
+#include "base/Event.h"
 #include "deskflow/App.h"
 #include "net/NetworkAddress.h"
 #include "server/Config.h"
@@ -102,7 +103,7 @@ public:
   }
 
 private:
-  void handleScreenSwitched() const;
+  void handleScreenSwitched(const Event &event) const;
   std::unique_ptr<ISocketFactory> getSocketFactory() const;
   NetworkAddress getAddress(const NetworkAddress &address) const;
 

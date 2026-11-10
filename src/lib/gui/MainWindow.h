@@ -20,6 +20,7 @@
 #include "config/ServerConfig.h"
 #include "gui/core/CoreProcess.h"
 #include "gui/core/NetworkMonitor.h"
+#include "litekvm/DragLandGate.h"
 #include "litekvm/RemoteDragDrop.h"
 #include "net/Fingerprint.h"
 
@@ -175,6 +176,7 @@ private:
   void onAutoSessionRequested(const litekvm::DiscoveredPeer &peer);
   void onEdgeFilesDragged(const QStringList &paths);
   void startRemoteDrag(const QStringList &paths);
+  void onActiveScreen(const QString &screen);
   void pollRemoteDrag();
   void finishRemoteDrag(const char *reason);
   bool askVisible(const QString &title, const QString &text, const QString &detail = QString());
@@ -239,6 +241,7 @@ private:
   QElapsedTimer m_remoteDragClock;
   litekvm::RemoteDragWait m_remoteDragWait;
   litekvm::RemoteDropLatch m_remoteDropLatch;
+  litekvm::DragLandGate m_dragLand;
   bool m_filePromptShowing = false;
   bool m_clipTransferOutgoing = false;
   QString m_clipTransferPeer;

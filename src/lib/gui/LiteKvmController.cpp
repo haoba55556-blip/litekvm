@@ -402,11 +402,25 @@ std::optional<LiteKvmController::ClipTarget> LiteKvmController::findTarget(const
 
 void LiteKvmController::sendFilesToPeer(const QString &deviceId, const QStringList &paths, const QString &intent)
 {
-  if (!m_clipFile || !m_fileClipboardEnabled || paths.isEmpty())
+  const QString wireIntent = intent.isEmpty() ? QStringLiteral("clipboard") : intent;
+  if (!m_clipFile || !m_fileClipboardEnabled || paths.isEmpty()) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("sendFiles"),
+        QStringLiteral("intent=%1 aborted peer-send clip=%2 enabled=%3 paths=%4")
+            .arg(wireIntent)
+            .arg(m_clipFile ? 1 : 0)
+            .arg(m_fileClipboardEnabled ? 1 : 0)
+            .arg(paths.size())
+    );
     return;
+  }
 
   const auto target = findTarget(deviceId);
   if (!target || target->host.isEmpty()) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("sendFiles"),
+        QStringLiteral("intent=%1 aborted target-missing device=%2").arg(wireIntent, deviceId)
+    );
     Q_EMIT fileClipboardError(tr("找不到已配对的对端「%1」，无法发送文件。").arg(deviceId));
     return;
   }

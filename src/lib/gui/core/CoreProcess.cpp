@@ -634,6 +634,9 @@ void CoreProcess::onCoreIpcMessageReceived(const QString &command, const QString
     const int bar = args.indexOf(QLatin1Char('|'));
     if (bar > 0)
       Q_EMIT peerSocketAddress(args.left(bar), args.mid(bar + 1));
+  } else if (command == "activeScreen") {
+    if (!args.trimmed().isEmpty())
+      Q_EMIT activeScreenChanged(args.trimmed());
   }
 }
 

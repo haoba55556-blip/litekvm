@@ -224,6 +224,7 @@ private:
   QByteArray m_buffer;
   bool m_helloDone = false; ///< peer identity accepted; socket handed over
   bool m_closing = false;   ///< re-entrancy guard for closeSession()
+  bool m_pumpingHandshake = false; ///< sendFilesTo is driving the handshake
   QString m_peerDeviceId;
   QString m_peerName;
   QStringList m_pendingPaths; ///< client: staged by sendFilesTo()

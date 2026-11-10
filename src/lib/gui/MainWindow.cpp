@@ -408,6 +408,7 @@ void MainWindow::connectSlots()
 
   connect(&m_coreProcess, &CoreProcess::connectedClientsChanged, this, &MainWindow::serverClientsChanged);
   connect(&m_coreProcess, &CoreProcess::peerSocketAddress, m_liteKvmController, &LiteKvmController::noteLivePeer);
+  connect(&m_coreProcess, &CoreProcess::activeScreenChanged, this, &MainWindow::onActiveScreen);
   connect(&m_coreProcess, &CoreProcess::unrecognisedClient, this, &MainWindow::handleUnrecognisedClient);
   connect(&m_coreProcess, &CoreProcess::connectionRefused, this, &MainWindow::handleConnectionRefused);
   connect(&m_coreProcess, &CoreProcess::retryIn, this, &MainWindow::updateTimeoutDelay);
@@ -1775,6 +1776,27 @@ void startQtDrag(const QStringList &paths)
 
 } // namespace
 
+void MainWindow::onActiveScreen(const QString &screen)
+{
+  const QString self = Settings::value(Settings::Core::ComputerName).toString();
+  const bool local = !self.isEmpty() && screen.compare(self, Qt::CaseInsensitive) == 0;
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("pointer"), QStringLiteral("screen=%1 self=%2 local=%3").arg(screen, self).arg(local ? 1 : 0)
+  );
+  m_dragLand.setPointerLocal(local);
+  if (!local)
+    return;
+  QString reason;
+  const QStringList paths = m_dragLand.takeIfPointerLocal(&reason);
+  if (paths.isEmpty())
+    return;
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("remote-drag"),
+      QStringLiteral("resume reason=%1 paths=%2 first=%3").arg(reason).arg(paths.size()).arg(paths.value(0))
+  );
+  startRemoteDrag(paths);
+}
+
 void MainWindow::startRemoteDrag(const QStringList &paths)
 {
   if (paths.isEmpty()) {
@@ -2106,11 +2128,18 @@ void MainWindow::onFileTransferCompleted(const QStringList &localPaths, bool out
 
     const QString intent = m_incomingClipIntent;
     m_incomingClipIntent.clear();
-    if (intent == QLatin1String("drag") && !localPaths.isEmpty()) {
-      // Drop under the cursor. Do not also plant the files on the clipboard;
-      // that is the copy-paste path and makes a drag feel like Ctrl+V.
-      const QStringList dragged = localPaths;
-      QTimer::singleShot(0, this, [this, dragged] { startRemoteDrag(dragged); });
+    if (intent == QLatin1String("drag")) {
+      QString reason;
+      const QStringList now = m_dragLand.receiveDrag(localPaths, &reason);
+      litekvm::ClipboardFileBridge::traceStage(
+          QStringLiteral("remote-drag"),
+          QStringLiteral("decide reason=%1 paths=%2 first=%3").arg(reason).arg(localPaths.size()).arg(localPaths.value(0))
+      );
+      if (!now.isEmpty()) {
+        // Drop under the cursor. Do not also plant the files on the clipboard;
+        // that is the copy-paste path and makes a drag feel like Ctrl+V.
+        QTimer::singleShot(0, this, [this, now] { startRemoteDrag(now); });
+      }
     } else if (m_liteKvmController && !localPaths.isEmpty()) {
       m_liteKvmController->copyFilesToClipboard(localPaths);
     }
@@ -2121,6 +2150,12 @@ void MainWindow::onFileTransferCompleted(const QStringList &localPaths, bool out
 
 void MainWindow::onFileTransferFailed(const QString &message, bool outgoing)
 {
+  if (!outgoing && m_incomingClipIntent == QLatin1String("drag")) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("remote-drag"), QStringLiteral("skipped transfer-failed detail=%1").arg(message)
+    );
+    m_incomingClipIntent.clear();
+  }
   finishTransferUi(tr("❌ %1：%2").arg(outgoing ? tr("发送失败") : tr("接收失败"), message), true);
 }
 
