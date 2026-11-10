@@ -19,6 +19,7 @@
 #include "deskflow/ProtocolTypes.h"
 #include "deskflow/ProtocolUtil.h"
 #include "deskflow/Screen.h"
+#include "deskflow/ClipboardYield.h"
 #include "deskflow/StreamChunker.h"
 #include "deskflow/ipc/CoreIpc.h"
 #include "net/PeerHost.h"
@@ -146,6 +147,8 @@ Server::Server(ServerConfig &config, PrimaryClient *primaryClient, deskflow::Scr
 
 Server::~Server()
 {
+  cancelSwitchSettle();
+
   // remove event handlers and timers
   using enum EventTypes;
   m_events->removeHandler(KeyStateKeyDown, m_inputFilter);
@@ -449,18 +452,28 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
 
   assert(m_active != nullptr);
 
-  if (m_dragInsetLanding) {
-    m_dragInsetLanding = false;
-    const int32_t landedX = x;
-    const int32_t landedY = y;
-    // A fast cross lands several pixels in (the log's 8,675). The 1 px inset
-    // leaves that point inside the edge strip, and the held button bounces
-    // straight back. Pull the whole margin band inward.
-    clampInsideMargin(dx, dy, dw, dh, kDragLandingMargin, x, y);
+  // File drags keep the 120 px / 1 s landing. Every other switch, including
+  // a button-up cross, lands clear of the jump zone and holds a short settle
+  // so the post-leave center park cannot throw the pointer back.
+  const bool dragLanding = m_dragInsetLanding;
+  m_dragInsetLanding = false;
+  const int32_t landedX = x;
+  const int32_t landedY = y;
+  const ScreenLanding landing = landInsideScreen(dx, dy, dw, dh, x, y, dragLanding);
+  x = landing.x;
+  y = landing.y;
+  if (dragLanding) {
+    // Same moment as before: the 1 s hold starts even if leave fails, so a
+    // drag that could not cross does not bounce off the edge strip.
     m_dragSettle = true;
     m_dragSettleWatch.reset();
     m_dragSettleWatch.start();
     LOG_INFO("edge drag: landing inset from %d,%d to %d,%d and holding this screen for 1 s", landedX, landedY, x, y);
+  } else {
+    LOG_INFO(
+        "switch landing inset from %d,%d to %d,%d and holding this screen for %d ms", landedX, landedY, x, y,
+        kSwitchSettleMs
+    );
   }
 
   LOG_INFO("switch from \"%s\" to \"%s\" at %d,%d", getName(m_active).c_str(), getName(dst).c_str(), x, y);
@@ -516,6 +529,15 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
     // cut over
     m_active = dst;
 
+    // The short settle starts only after leave succeeded. A drag hold was
+    // already started above and keeps its 1 s timer.
+    if (dragLanding) {
+      cancelSwitchSettle();
+    } else {
+      m_dragSettle = false;
+      armSwitchSettle();
+    }
+
     // increment enter sequence number
     ++m_seqNum;
 
@@ -531,12 +553,21 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
     }
 
     if (m_enableClipboard) {
-      // send the clipboard data to new active screen
+      // A megabyte clipboard on this socket stalls the pointer. Large
+      // payloads wait until the button-up settle ends; the send itself
+      // is one piece per turn either way.
+      const bool remote = m_active != m_primaryClient;
       for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
-        // Hackity hackity hack
-        if (m_clipboards[id].m_clipboard.marshall().size() > (m_maximumClipboardSize * 1024)) {
+        const size_t bytes = m_clipboards[id].m_clipboard.marshall().size();
+        if (bytes > (m_maximumClipboardSize * 1024)) {
           continue;
         }
+        if (deferLargeClipboardDuringSettle(bytes, m_switchSettle, remote)) {
+          m_deferredClipboard[id] = true;
+          LOG_DEBUG("deferring clipboard %d (%zu bytes) until switch settle ends", id, bytes);
+          continue;
+        }
+        m_deferredClipboard[id] = false;
         m_active->setClipboard(id, &m_clipboards[id].m_clipboard);
       }
     }
@@ -944,12 +975,79 @@ bool Server::dragSettleActive()
 {
   if (!m_dragSettle)
     return false;
-  if (m_dragSettleWatch.getTime() >= 1.0) {
+  if (!settleHolding(m_dragSettleWatch.getTime(), kDragSettleSeconds)) {
     m_dragSettle = false;
     LOG_INFO("edge drag: settle ended");
     return false;
   }
   return true;
+}
+
+bool Server::switchSettleActive()
+{
+  if (!m_switchSettle)
+    return false;
+  if (!settleHolding(m_switchSettleWatch.getTime(), kSwitchSettleSeconds)) {
+    endSwitchSettle();
+    return false;
+  }
+  return true;
+}
+
+void Server::clearSwitchSettleTimer()
+{
+  if (m_switchSettleTimer == nullptr)
+    return;
+  EventQueueTimer *timer = m_switchSettleTimer;
+  m_switchSettleTimer = nullptr;
+  m_events->removeHandler(EventTypes::Timer, timer);
+  m_events->deleteTimer(timer);
+}
+
+void Server::cancelSwitchSettle()
+{
+  m_switchSettle = false;
+  clearSwitchSettleTimer();
+  for (ClipboardID id = 0; id < kClipboardEnd; ++id)
+    m_deferredClipboard[id] = false;
+}
+
+void Server::armSwitchSettle()
+{
+  cancelSwitchSettle();
+  m_switchSettle = true;
+  m_switchSettleWatch.reset();
+  m_switchSettleWatch.start();
+  if (m_events == nullptr)
+    return;
+  m_switchSettleTimer = m_events->newOneShotTimer(kSwitchSettleSeconds, nullptr);
+  m_events->addHandler(EventTypes::Timer, m_switchSettleTimer, [this](const auto &) { endSwitchSettle(); });
+}
+
+void Server::endSwitchSettle()
+{
+  if (!m_switchSettle && m_switchSettleTimer == nullptr)
+    return;
+  m_switchSettle = false;
+  clearSwitchSettleTimer();
+  LOG_DEBUG("switch settle ended");
+  flushDeferredClipboards();
+}
+
+void Server::flushDeferredClipboards()
+{
+  if (!m_enableClipboard || m_active == nullptr)
+    return;
+  for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
+    if (!m_deferredClipboard[id])
+      continue;
+    m_deferredClipboard[id] = false;
+    const size_t bytes = m_clipboards[id].m_clipboard.marshall().size();
+    if (bytes > m_maximumClipboardSize * 1024)
+      continue;
+    LOG_DEBUG("sending deferred clipboard %d (%zu bytes) to \"%s\"", id, bytes, getName(m_active).c_str());
+    m_active->setClipboard(id, &m_clipboards[id].m_clipboard);
+  }
 }
 
 void Server::stopSwitch()
@@ -1263,6 +1361,42 @@ void Server::handleClipboardGrabbed(const Event &event, BaseClientProxy *grabber
     LOG_DEBUG("ignored screen \"%s\" grab of clipboard %d", getName(grabber).c_str(), info->m_id);
     return;
   }
+  const std::string previousClipboard = clipboard.m_clipboardData;
+
+  // The active client already has these bytes. grabClipboard would empty
+  // it, and the refill is a megabyte on the pointer socket.
+  if (grabber == m_primaryClient && m_active != nullptr && m_active != m_primaryClient) {
+    Clipboard fresh;
+    if (grabber->getClipboard(info->m_id, &fresh)) {
+      const std::string data = fresh.marshall();
+      const bool deferred = m_deferredClipboard[info->m_id];
+      const ClipboardGrabAction action = clipboardGrabResend(data == previousClipboard, deferred, true);
+      if (!action.sendNow) {
+        LOG_DEBUG("clipboard %d unchanged; not resending to \"%s\"", info->m_id, getName(m_active).c_str());
+        clipboard.m_clipboardOwner = getName(grabber);
+        clipboard.m_clipboardSeqNum = info->m_sequenceNumber;
+        Clipboard::copy(&clipboard.m_clipboard, &fresh);
+        clipboard.m_clipboardData = data;
+        if (!action.keepDeferred)
+          m_deferredClipboard[info->m_id] = false;
+        for (auto index = m_clients.begin(); index != m_clients.end(); ++index) {
+          BaseClientProxy *client = index->second;
+          if (client == grabber)
+            client->setClipboardDirty(info->m_id, false);
+          else if (client == m_active) {
+            if (!action.keepDeferred)
+              client->setClipboardDirty(info->m_id, false);
+          } else {
+            client->grabClipboard(info->m_id);
+          }
+        }
+        return;
+      }
+    }
+  }
+
+  // A changed clipboard replaces anything still waiting on the settle.
+  m_deferredClipboard[info->m_id] = false;
 
   // mark screen as owning clipboard
   LOG_DEBUG(
@@ -1730,6 +1864,27 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
     return false;
   }
 
+  // Button-up landing. Absolute samples still on the edge would switch
+  // straight back; hold the pointer inside the margin until the park passes.
+  if (switchSettleActive()) {
+    int32_t ax = 0;
+    int32_t ay = 0;
+    int32_t aw = 0;
+    int32_t ah = 0;
+    m_active->getShape(ax, ay, aw, ah);
+    const SettleMotion step = applyAbsoluteDuringSettle(x, y, ax, ay, aw, ah, kSwitchLandingMargin, true);
+    m_xDelta2 = m_xDelta;
+    m_yDelta2 = m_yDelta;
+    m_xDelta = step.x - m_x;
+    m_yDelta = step.y - m_y;
+    const bool moved = step.x != m_x || step.y != m_y;
+    m_x = step.x;
+    m_y = step.y;
+    if (moved)
+      m_active->mouseMove(m_x, m_y);
+    return false;
+  }
+
   // save last delta
   m_xDelta2 = m_xDelta;
   m_yDelta2 = m_yDelta;
@@ -1873,6 +2028,18 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
     return;
   }
 
+  // The center-warp echo filter only drops a single large jump. A staircase
+  // of smaller park samples, or 1 px of edge jitter, recrosses a landing
+  // that is still on the jump-zone pixel. While the button-up settle holds,
+  // drop those spikes and refuse the edge.
+  bool holdSwitch = false;
+  if (!m_dragSettle && switchSettleActive()) {
+    holdSwitch = true;
+    const SettleMotion step = applyRelativeDuringSettle(m_x, m_y, dx, dy, ax, ay, aw, ah, kSwitchLandingMargin, true);
+    dx = step.x - m_x;
+    dy = step.y - m_y;
+  }
+
   // save old position
   const int32_t xOld = m_x;
   const int32_t yOld = m_y;
@@ -1981,7 +2148,7 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
                        switchesToOtherScreen(getName(m_active).c_str(), getName(newScreen).c_str());
     if (!other)
       stopSwitch();
-    if (dragSettleActive() || !other || !isSwitchOkay(newScreen, dir, m_x, m_y, xc, yc)) {
+    if (dragSettleActive() || holdSwitch || !other || !isSwitchOkay(newScreen, dir, m_x, m_y, xc, yc)) {
       newScreen = m_active;
       jump = false;
     }
@@ -2011,6 +2178,8 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
       m_y = ay + ah - 1;
       LOG_VERBOSE("clamp to bottom of \"%s\"", getName(m_active).c_str());
     }
+    if (holdSwitch)
+      clampInsideMargin(ax, ay, aw, ah, kSwitchLandingMargin, m_x, m_y);
 
     // warp cursor if it moved.
     if (m_x != xOld || m_y != yOld) {

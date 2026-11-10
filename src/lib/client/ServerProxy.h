@@ -11,6 +11,8 @@
 #include "common/Enums.h"
 #include "deskflow/ClipboardChunk.h"
 #include "deskflow/ClipboardTypes.h"
+#include "deskflow/ClipboardYield.h"
+#include "deskflow/StreamChunker.h"
 #include "deskflow/KeyTypes.h"
 #include "deskflow/KeyboardLayoutManager.h"
 #include "deskflow/MouseMotionCoalescer.h"
@@ -79,6 +81,8 @@ private:
   // event handlers
   void handleData();
   void handleKeepAliveAlarm();
+  void scheduleClipboardApply();
+  void deliverDeferredClipboard();
   void requestDisconnect(const char *message);
   void requestRefuseConnection(deskflow::core::ConnectionRefusal reason, const char *message);
 
@@ -128,6 +132,9 @@ private:
 
   double m_keepAliveAlarm = 0.0;
   EventQueueTimer *m_keepAliveAlarmTimer = nullptr;
+  EventQueueTimer *m_clipboardApplyTimer = nullptr;
+  ClipboardYieldPump m_clipboardPump;
+  ClipboardApplyGate m_clipboardApply;
 
   MessageParser m_parser = &ServerProxy::parseHandshakeMessage;
   IEventQueue *m_events = nullptr;

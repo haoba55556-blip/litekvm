@@ -265,6 +265,12 @@ private:
   void noSwitch(int32_t x, int32_t y, bool keepDragHold = false);
   bool dragEdgeGraceElapsed();
   bool dragSettleActive();
+  bool switchSettleActive();
+  void armSwitchSettle();
+  void cancelSwitchSettle();
+  void endSwitchSettle();
+  void clearSwitchSettleTimer();
+  void flushDeferredClipboards();
 
   // stop switch timers
   void stopSwitch();
@@ -411,6 +417,11 @@ private:
   bool m_dragInsetLanding = false;
   bool m_dragSettle = false;
   Stopwatch m_dragSettleWatch{true};
+  // Button-up crossings. Separate from the 1 s file-drag hold.
+  bool m_switchSettle = false;
+  Stopwatch m_switchSettleWatch{true};
+  EventQueueTimer *m_switchSettleTimer = nullptr;
+  bool m_deferredClipboard[kClipboardEnd] = {};
 
   // Name of screen broadcasting the keyboard events
   std::string m_keyboardBroadcastingScreens;

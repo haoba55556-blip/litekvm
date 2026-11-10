@@ -41,6 +41,8 @@ ServerProxy::ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue 
   for (KeyModifierID id = 0; id < kKeyModifierIDLast; ++id)
     m_modifierTranslationTable[id] = id;
 
+  m_clipboardPump.bind(events, stream);
+
   // handle data on stream
   m_events->addHandler(EventTypes::StreamInputReady, m_stream->getEventTarget(), [this](const auto &) {
     handleData();
@@ -55,6 +57,12 @@ ServerProxy::ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue 
 
 ServerProxy::~ServerProxy()
 {
+  if (m_clipboardApplyTimer != nullptr) {
+    m_events->removeHandler(EventTypes::Timer, m_clipboardApplyTimer);
+    m_events->deleteTimer(m_clipboardApplyTimer);
+    m_clipboardApplyTimer = nullptr;
+  }
+  m_clipboardPump.stop();
   setKeepAliveRate(-1.0);
   m_events->removeHandler(EventTypes::StreamInputReady, m_stream->getEventTarget());
   m_events->removeHandler(EventTypes::ClipboardSending, this);
@@ -89,6 +97,7 @@ void ServerProxy::handleData()
     if (n != 4) {
       LOG_ERR("incomplete message from server: %d bytes", n);
       requestDisconnect("incomplete message from server");
+      m_clipboardApply.takePending();
       return;
     }
 
@@ -109,12 +118,14 @@ void ServerProxy::handleData()
         break;
 
       case Disconnect:
+        m_clipboardApply.takePending();
         return;
       }
     } catch (const BadClientException &e) {
       LOG_ERR("protocol error from server: %s", e.what());
       ProtocolUtil::writef(m_stream, kMsgEBad);
       requestDisconnect("invalid message from server");
+      m_clipboardApply.takePending();
       return;
     }
 
@@ -123,7 +134,37 @@ void ServerProxy::handleData()
   }
 
   // Tail of a burst that was coalesced because more bytes were already buffered.
+  // Mouse messages in this buffer have already been applied. The OS clipboard
+  // update waits for a later turn (same order as replayClipboardAndMouse).
   flushCompressedMouse();
+  scheduleClipboardApply();
+}
+
+void ServerProxy::scheduleClipboardApply()
+{
+  if (!m_clipboardApply.hasPending() || m_clipboardApplyTimer != nullptr || m_events == nullptr)
+    return;
+  m_clipboardApplyTimer = m_events->newOneShotTimer(kClipboardYieldSeconds, nullptr);
+  m_events->addHandler(EventTypes::Timer, m_clipboardApplyTimer, [this](const auto &) { deliverDeferredClipboard(); });
+}
+
+void ServerProxy::deliverDeferredClipboard()
+{
+  if (m_clipboardApplyTimer != nullptr) {
+    EventQueueTimer *timer = m_clipboardApplyTimer;
+    m_clipboardApplyTimer = nullptr;
+    m_events->removeHandler(EventTypes::Timer, timer);
+    m_events->deleteTimer(timer);
+  }
+  // Mouse samples parsed ahead of this timer have already been applied.
+  flushCompressedMouse();
+  for (auto &item : m_clipboardApply.takePending()) {
+    LOG_DEBUG("applying clipboard %d size=%zu", item.id, item.bytes.size());
+    Clipboard clipboard;
+    clipboard.unmarshall(item.bytes, 0);
+    m_client->setClipboard(item.id, &clipboard);
+    LOG_INFO("clipboard was updated");
+  }
 }
 
 ServerProxy::ConnectionResult ServerProxy::parseHandshakeMessage(const uint8_t *code)
@@ -387,7 +428,7 @@ void ServerProxy::onClipboardChanged(ClipboardID id, const IClipboard *clipboard
   std::string data = IClipboard::marshall(clipboard);
   LOG_DEBUG("sending clipboard %d seqnum=%d", id, m_seqNum);
 
-  StreamChunker::sendClipboard(data, data.size(), id, m_seqNum, m_events, this);
+  StreamChunker::sendClipboard(data, data.size(), id, m_seqNum, m_clipboardPump);
 }
 
 void ServerProxy::flushCompressedMouse()
@@ -596,14 +637,11 @@ void ServerProxy::setClipboard()
   } else if (r == TransferState::Finished) {
     LOG_DEBUG("received clipboard %d size=%zu", id, m_clipboardDataCached.size());
 
-    // forward
-    Clipboard clipboard;
-    clipboard.unmarshall(m_clipboardDataCached, 0);
-    m_client->setClipboard(id, &clipboard);
+    // Do not set the OS clipboard inside this read loop. A large image blocks
+    // the parser, and mouse messages already buffered behind it wait.
+    m_clipboardApply.defer(id, std::move(m_clipboardDataCached));
     m_clipboardDataCached.clear();
     m_clipboardDataCached.shrink_to_fit();
-
-    LOG_INFO("clipboard was updated");
   } else if (r == TransferState::Error) {
     requestDisconnect("invalid clipboard data from server");
   }
