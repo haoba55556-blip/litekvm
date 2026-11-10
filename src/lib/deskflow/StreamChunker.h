@@ -26,7 +26,7 @@ class IStream;
 class ClipboardYieldPump
 {
 public:
-  ClipboardYieldPump() = default;
+  ClipboardYieldPump();
   ~ClipboardYieldPump();
 
   ClipboardYieldPump(const ClipboardYieldPump &) = delete;

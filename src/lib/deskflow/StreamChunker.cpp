@@ -55,6 +55,11 @@ struct ClipboardYieldPump::Job
   }
 };
 
+// Defined here, after Job is complete. An inline default constructor makes
+// libstdc++ instantiate unique_ptr's deleter in every including TU, and
+// MinGW 13.1 rejects sizeof on the incomplete Job.
+ClipboardYieldPump::ClipboardYieldPump() = default;
+
 ClipboardYieldPump::~ClipboardYieldPump()
 {
   stop();
