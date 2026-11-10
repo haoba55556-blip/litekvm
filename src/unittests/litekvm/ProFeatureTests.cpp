@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Tests for litekvm-pro features: AutoStart, AutoConnect, RoleNegotiation.
 #include "../../lib/arch/LowLatencySocket.h"
+#include "../../lib/deskflow/CursorHider.h"
 #include "../../lib/deskflow/JumpZoneMouse.h"
 #include "../../lib/deskflow/MouseMotionCoalescer.h"
 #include "../../lib/litekvm/AutoConnect.h"
@@ -476,6 +477,44 @@ private Q_SLOTS:
     // ...and coming back online is a no-op
     rn.setOnline(QStringLiteral("0000-small-id"));
     QCOMPARE(changed.available(), 1); // no additional change
+  }
+
+  void leaveCursorHiderCoversThePointerThatWasLeftBehind()
+  {
+    // The old primary low-level hider was a 1x1 window at the screen center
+    // and did not hit-test. The hardware cursor stayed on the leave edge.
+    const CursorHiderRect oldCenter{1280, 720, 1, 1};
+    constexpr int32_t leaveEdgeX = 2519;
+    constexpr int32_t leaveEdgeY = 400;
+    QVERIFY(!pointerOverHider(leaveEdgeX, leaveEdgeY, oldCenter));
+    QVERIFY(showCursorCannotHide(false, pointerOverHider(leaveEdgeX, leaveEdgeY, oldCenter)));
+
+    // A hider built around the pointer covers it, including a pixel of
+    // absolute-move rounding. ShowCursor can hide it only if that window
+    // also claims the hit.
+    const CursorHiderRect covered = cursorHiderRect(leaveEdgeX, leaveEdgeY);
+    QVERIFY(pointerOverHider(leaveEdgeX, leaveEdgeY, covered));
+    QVERIFY(pointerOverHider(leaveEdgeX - 8, leaveEdgeY + 8, covered));
+    QVERIFY(!pointerOverHider(leaveEdgeX + kCursorHiderSlop + 1, leaveEdgeY, covered));
+    QVERIFY(!showCursorCannotHide(true, true));
+    QVERIFY(showCursorCannotHide(false, true));
+    QVERIFY(showCursorCannotHide(true, false));
+
+    // Parking at the center does not cover an edge the warp failed to leave.
+    const CursorHiderRect parked = cursorHiderRect(1280, 720);
+    QVERIFY(pointerOverHider(1280, 720, parked));
+    QVERIFY(!pointerOverHider(leaveEdgeX, leaveEdgeY, parked));
+    QCOMPARE(parked.w, kCursorHiderSlop * 2 + 1);
+    QCOMPARE(parked.h, parked.w);
+
+    // The park warp lands inside the hider. Real local motion that exits it
+    // dismisses the hider so the physical mouse works on a client.
+    QVERIFY(!dismissHiderOnLocalMove(kCursorHiderSlop, kCursorHiderSlop, parked.w, parked.h));
+    QVERIFY(!dismissHiderOnLocalMove(0, 0, parked.w, parked.h));
+    QVERIFY(!dismissHiderOnLocalMove(parked.w - 1, parked.h - 1, parked.w, parked.h));
+    QVERIFY(dismissHiderOnLocalMove(-1, kCursorHiderSlop, parked.w, parked.h));
+    QVERIFY(dismissHiderOnLocalMove(parked.w, 0, parked.w, parked.h));
+    QVERIFY(dismissHiderOnLocalMove(0, -1, parked.w, parked.h));
   }
 
   void jumpZoneHookLeavesDragMovesForOle()

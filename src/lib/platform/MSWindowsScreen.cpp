@@ -313,6 +313,10 @@ void MSWindowsScreen::leave()
     }
   }
 
+  // The primary warp above runs after the desk thread placed the hider.
+  // Cover the pointer where it actually landed, on both roles.
+  m_desks->anchorCursorHider();
+
   // now off screen
   m_isOnScreen = false;
 }

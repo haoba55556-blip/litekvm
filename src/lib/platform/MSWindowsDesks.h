@@ -87,6 +87,14 @@ public:
   */
   void leave(HKL keyLayout);
 
+  //! Move the cursor hider under the pointer after leave warps it
+  /*!
+  The primary warps to the center on the main thread after the desk
+  thread has placed the hider. Call this after that warp so the hider
+  covers the pointer's final position.
+  */
+  void anchorCursorHider() const;
+
   //! Notify of options changes
   /*!
   Resets all options to their default values.
@@ -208,6 +216,8 @@ private:
   bool restoreRelativeCursorPosition(Desk *desk) const;
   void deskEnter(Desk *desk);
   void deskLeave(Desk *desk, HKL keyLayout);
+  void parkPointerForHider(Desk *desk) const;
+  void moveHiderUnderPointer(Desk *desk) const;
   void deskThread(const void *vdesk);
 
   // desk switch checking and handling
