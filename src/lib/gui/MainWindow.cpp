@@ -83,11 +83,16 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#include <exdisp.h>
+// exdisp.h uses the COM `interface` macro from windows.h and objbase.h.
+// clang-format would sort these includes and put exdisp.h first, which breaks MSVC.
+// clang-format off
+#include <windows.h>
+#include <objbase.h>
 #include <objidl.h>
+#include <exdisp.h>
 #include <shlobj.h>
 #include <shobjidl.h>
-#include <windows.h>
+// clang-format on
 #endif
 
 using namespace deskflow::gui;
