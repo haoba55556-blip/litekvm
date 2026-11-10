@@ -405,12 +405,11 @@ void LiteKvmController::sendFilesToPeer(const QString &deviceId, const QStringLi
   const QString wireIntent = intent.isEmpty() ? QStringLiteral("clipboard") : intent;
   if (!m_clipFile || !m_fileClipboardEnabled || paths.isEmpty()) {
     litekvm::ClipboardFileBridge::traceStage(
-        QStringLiteral("sendFiles"),
-        QStringLiteral("intent=%1 aborted peer-send clip=%2 enabled=%3 paths=%4")
-            .arg(wireIntent)
-            .arg(m_clipFile ? 1 : 0)
-            .arg(m_fileClipboardEnabled ? 1 : 0)
-            .arg(paths.size())
+        QStringLiteral("sendFiles"), QStringLiteral("intent=%1 aborted peer-send clip=%2 enabled=%3 paths=%4")
+                                         .arg(wireIntent)
+                                         .arg(m_clipFile ? 1 : 0)
+                                         .arg(m_fileClipboardEnabled ? 1 : 0)
+                                         .arg(paths.size())
     );
     return;
   }

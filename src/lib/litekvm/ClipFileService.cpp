@@ -255,12 +255,11 @@ void ClipFileService::sendFilesTo(const QString &host, quint16 port, const QStri
   });
 
   ClipboardFileBridge::traceStage(
-      QStringLiteral("CLIP_OFFER"),
-      QStringLiteral("intent=%1 connecting host=%2 port=%3 paths=%4 listening=%5")
-          .arg(m_pendingIntent, host)
-          .arg(port)
-          .arg(paths.size())
-          .arg(m_server.isListening() ? 1 : 0)
+      QStringLiteral("CLIP_OFFER"), QStringLiteral("intent=%1 connecting host=%2 port=%3 paths=%4 listening=%5")
+                                        .arg(m_pendingIntent, host)
+                                        .arg(port)
+                                        .arg(paths.size())
+                                        .arg(m_server.isListening() ? 1 : 0)
   );
   // A file drag runs inside the shell's modal loop. That loop delivered the
   // "sending" timer but not this socket, so the offer was never written and
@@ -278,10 +277,9 @@ void ClipFileService::sendFilesTo(const QString &host, quint16 port, const QStri
   m_pumpingHandshake = false;
   if (m_socket == socket && !m_helloDone) {
     ClipboardFileBridge::traceStage(
-        QStringLiteral("CLIP_OFFER"),
-        QStringLiteral("intent=%1 handshake-gave-up host=%2 state=%3")
-            .arg(m_pendingIntent, host)
-            .arg(int(socket->state()))
+        QStringLiteral("CLIP_OFFER"), QStringLiteral("intent=%1 handshake-gave-up host=%2 state=%3")
+                                          .arg(m_pendingIntent, host)
+                                          .arg(int(socket->state()))
     );
     const bool connected = socket->state() == QAbstractSocket::ConnectedState;
     reportError(
@@ -722,10 +720,9 @@ void ClipFileService::startTransfer()
     // Listening left the role as Server. The paths were staged by sendFilesTo,
     // so this socket is still the sender.
     ClipboardFileBridge::traceStage(
-        QStringLiteral("CLIP_OFFER"),
-        QStringLiteral("intent=%1 role=%2 sending-anyway paths=%3")
-            .arg(m_pendingIntent, toString(m_role))
-            .arg(m_pendingPaths.size())
+        QStringLiteral("CLIP_OFFER"), QStringLiteral("intent=%1 role=%2 sending-anyway paths=%3")
+                                          .arg(m_pendingIntent, toString(m_role))
+                                          .arg(m_pendingPaths.size())
     );
   }
   const QStringList paths = m_pendingPaths;

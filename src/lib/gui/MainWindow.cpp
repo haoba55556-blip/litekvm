@@ -34,12 +34,12 @@
 #include "gui/ipc/DaemonIpcClient.h"
 #include "gui/widgets/CollapsiblePanel.h"
 #include "gui/widgets/EdgeFileDrop.h"
-#include "litekvm/DropFileLand.h"
 #include "gui/widgets/LogDock.h"
 #include "litekvm/AutoStart.h"
 #include "litekvm/ClipRoute.h"
 #include "litekvm/ClipboardFileBridge.h"
 #include "litekvm/DiscoveryService.h"
+#include "litekvm/DropFileLand.h"
 #include "net/FingerprintDatabase.h"
 #include "widgets/StatusBar.h"
 
@@ -2132,8 +2132,10 @@ void MainWindow::onFileTransferCompleted(const QStringList &localPaths, bool out
       QString reason;
       const QStringList now = m_dragLand.receiveDrag(localPaths, &reason);
       litekvm::ClipboardFileBridge::traceStage(
-          QStringLiteral("remote-drag"),
-          QStringLiteral("decide reason=%1 paths=%2 first=%3").arg(reason).arg(localPaths.size()).arg(localPaths.value(0))
+          QStringLiteral("remote-drag"), QStringLiteral("decide reason=%1 paths=%2 first=%3")
+                                             .arg(reason)
+                                             .arg(localPaths.size())
+                                             .arg(localPaths.value(0))
       );
       if (!now.isEmpty()) {
         // Drop under the cursor. Do not also plant the files on the clipboard;

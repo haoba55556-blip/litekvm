@@ -57,9 +57,8 @@ inline bool isCenterWarpEcho(int32_t dx, int32_t dy, int32_t width, int32_t heig
   return dx >= limitX || dx <= -limitX || dy >= limitY || dy <= -limitY;
 }
 
-inline bool pointerInEdgeBand(
-    int32_t x, int32_t y, int32_t left, int32_t top, int32_t width, int32_t height, int32_t band
-)
+inline bool
+pointerInEdgeBand(int32_t x, int32_t y, int32_t left, int32_t top, int32_t width, int32_t height, int32_t band)
 {
   if (width < 1 || height < 1 || band < 1)
     return false;

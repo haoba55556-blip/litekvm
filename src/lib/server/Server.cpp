@@ -1789,9 +1789,7 @@ bool Server::onMouseMovePrimary(int32_t x, int32_t y)
   if (dirh == NoDirection && dirv == NoDirection) {
     // still on local screen
     const bool keepHold =
-        resetDragEdgeHold(
-            isLockedToScreen(), pointerInEdgeBand(x, y, ax, ay, aw, ah, kDragLandingMargin)
-        ) == false;
+        resetDragEdgeHold(isLockedToScreen(), pointerInEdgeBand(x, y, ax, ay, aw, ah, kDragLandingMargin)) == false;
     noSwitch(x, y, keepHold);
     return false;
   }
@@ -1965,9 +1963,8 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
         if (clearWait) {
           // still on local screen
           const bool keepHold =
-              resetDragEdgeHold(
-                  isLockedToScreen(), pointerInEdgeBand(m_x, m_y, ax, ay, aw, ah, kDragLandingMargin)
-              ) == false;
+              resetDragEdgeHold(isLockedToScreen(), pointerInEdgeBand(m_x, m_y, ax, ay, aw, ah, kDragLandingMargin)) ==
+              false;
           noSwitch(m_x, m_y, keepHold);
         }
       }
@@ -1980,9 +1977,8 @@ void Server::onMouseMoveSecondary(int32_t dx, int32_t dy)
     newScreen = mapToNeighbor(m_active, dir, m_x, m_y);
 
     // see if we should switch
-    const bool other =
-        newScreen != nullptr && newScreen != m_active &&
-        switchesToOtherScreen(getName(m_active).c_str(), getName(newScreen).c_str());
+    const bool other = newScreen != nullptr && newScreen != m_active &&
+                       switchesToOtherScreen(getName(m_active).c_str(), getName(newScreen).c_str());
     if (!other)
       stopSwitch();
     if (dragSettleActive() || !other || !isSwitchOkay(newScreen, dir, m_x, m_y, xc, yc)) {
