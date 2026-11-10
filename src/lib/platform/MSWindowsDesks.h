@@ -17,6 +17,11 @@
 #include <string>
 
 #define WIN32_LEAN_AND_MEAN
+// MinGW's winuser.h only declares OCR_* when this is set before Windows.h.
+// MSVC often still sees them; this MinGW build does not.
+#ifndef OEMRESOURCE
+#define OEMRESOURCE
+#endif
 #include <Windows.h>
 
 class Event;
@@ -86,6 +91,14 @@ public:
   Prepares a desk for when the cursor leaves it.
   */
   void leave(HKL keyLayout);
+
+  //! Move the cursor hider under the pointer after leave warps it
+  /*!
+  The primary warps to the center on the main thread after the desk
+  thread has placed the hider. Call this after that warp so the hider
+  covers the pointer's final position.
+  */
+  void anchorCursorHider() const;
 
   //! Notify of options changes
   /*!
@@ -208,6 +221,8 @@ private:
   bool restoreRelativeCursorPosition(Desk *desk) const;
   void deskEnter(Desk *desk);
   void deskLeave(Desk *desk, HKL keyLayout);
+  void parkPointerForHider(Desk *desk) const;
+  void moveHiderUnderPointer(Desk *desk) const;
   void deskThread(const void *vdesk);
 
   // desk switch checking and handling

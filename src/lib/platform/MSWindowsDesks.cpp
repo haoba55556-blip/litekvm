@@ -6,6 +6,12 @@
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
+// Must precede every Windows.h include in this TU. MSWindowsDesks.h is first
+// and defines OEMRESOURCE itself; repeat it here so a later include reorder
+// cannot hide OCR_* from MinGW.
+#ifndef OEMRESOURCE
+#define OEMRESOURCE
+#endif
 #include "platform/MSWindowsDesks.h"
 
 #include "arch/Arch.h"
@@ -13,6 +19,7 @@
 #include "base/IJob.h"
 #include "base/Log.h"
 #include "base/TMethodJob.h"
+#include "deskflow/CursorHider.h"
 #include "deskflow/IScreenSaver.h"
 #include "deskflow/ScreenException.h"
 #include "deskflow/win32/AppUtilWindows.h"
@@ -32,6 +39,52 @@
 #endif
 #if !defined(SPI_GETSCREENSAVERRUNNING)
 #define SPI_GETSCREENSAVERRUNNING 114
+#endif
+#if !defined(SPI_SETCURSORS)
+#define SPI_SETCURSORS 0x0057
+#endif
+
+// OCR_* live in winuser.h only when OEMRESOURCE was defined before Windows.h,
+// and OCR_HAND / OCR_APPSTARTING also require a new enough WINVER. The values
+// are the documented system-cursor ids.
+#if !defined(OCR_NORMAL)
+#define OCR_NORMAL 32512
+#endif
+#if !defined(OCR_IBEAM)
+#define OCR_IBEAM 32513
+#endif
+#if !defined(OCR_WAIT)
+#define OCR_WAIT 32514
+#endif
+#if !defined(OCR_CROSS)
+#define OCR_CROSS 32515
+#endif
+#if !defined(OCR_UP)
+#define OCR_UP 32516
+#endif
+#if !defined(OCR_SIZENWSE)
+#define OCR_SIZENWSE 32642
+#endif
+#if !defined(OCR_SIZENESW)
+#define OCR_SIZENESW 32643
+#endif
+#if !defined(OCR_SIZEWE)
+#define OCR_SIZEWE 32644
+#endif
+#if !defined(OCR_SIZENS)
+#define OCR_SIZENS 32645
+#endif
+#if !defined(OCR_SIZEALL)
+#define OCR_SIZEALL 32646
+#endif
+#if !defined(OCR_NO)
+#define OCR_NO 32648
+#endif
+#if !defined(OCR_HAND)
+#define OCR_HAND 32649
+#endif
+#if !defined(OCR_APPSTARTING)
+#define OCR_APPSTARTING 32650
 #endif
 
 #if !defined(MOUSEEVENTF_HWHEEL)
@@ -80,6 +133,8 @@
 #define DESKFLOW_MSG_FAKE_REL_MOVE DESKFLOW_HOOK_LAST_MSG + 11
 // enable; <unused>
 #define DESKFLOW_MSG_FAKE_INPUT DESKFLOW_HOOK_LAST_MSG + 12
+// <unused>; <unused> — move the hider under the pointer after the main-thread warp
+#define DESKFLOW_MSG_ANCHOR_CURSOR DESKFLOW_HOOK_LAST_MSG + 13
 
 static void send_keyboard_input(WORD wVk, WORD wScan, DWORD dwFlags)
 {
@@ -106,6 +161,146 @@ static void send_mouse_input(DWORD dwFlags, DWORD dx, DWORD dy, DWORD dwData)
   SendInput(1, &inp, sizeof(inp));
 }
 
+// Every system cursor the pointer can switch to while it sits on another
+// thread's window. ShowCursor does not change those sprites.
+static const DWORD kSystemCursorIds[] = {
+    OCR_NORMAL, OCR_IBEAM,  OCR_WAIT,    OCR_CROSS, OCR_UP,   OCR_SIZENWSE,    OCR_SIZENESW,
+    OCR_SIZEWE, OCR_SIZENS, OCR_SIZEALL, OCR_NO,    OCR_HAND, OCR_APPSTARTING,
+};
+
+static HCURSOR s_blankCursor = nullptr;
+static bool s_systemCursorsBlanked = false;
+// The park warp delivers WM_MOUSEMOVE. That must not count as the user
+// grabbing the physical mouse.
+static bool s_suppressHiderDismiss = false;
+
+static void blankSystemCursors()
+{
+  if (s_systemCursorsBlanked || s_blankCursor == nullptr)
+    return;
+
+  int replaced = 0;
+  for (DWORD id : kSystemCursorIds) {
+    HCURSOR copy = CopyCursor(s_blankCursor);
+    if (copy == nullptr)
+      continue;
+    if (SetSystemCursor(copy, id))
+      ++replaced;
+    else
+      DestroyCursor(copy);
+  }
+
+  s_systemCursorsBlanked = replaced > 0;
+  if (replaced == 0)
+    LOG_ERR("unable to blank system cursors");
+  else
+    LOG_DEBUG("blanked %d system cursors", replaced);
+}
+
+static void restoreSystemCursors()
+{
+  if (!s_systemCursorsBlanked)
+    return;
+
+  if (!SystemParametersInfo(SPI_SETCURSORS, 0, nullptr, 0))
+    LOG_ERR("unable to restore system cursors: %lu", GetLastError());
+  else
+    LOG_DEBUG("restored system cursors");
+  s_systemCursorsBlanked = false;
+}
+
+static void showCursorHider(HWND hwnd, int x, int y, int w, int h, bool claimHitTest)
+{
+  if (hwnd == nullptr)
+    return;
+
+  if (!claimHitTest) {
+    // Full-monitor fallback used when low-level hooks did not install.
+    // Leave it transparent so it does not eat clicks on the whole desktop.
+    // System-cursor blanking still hides the arrow.
+    SetWindowPos(hwnd, HWND_TOP, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    return;
+  }
+
+  // WS_EX_TRANSPARENT is hit-tested as HTTRANSPARENT, so the pointer never
+  // belongs to this thread and ShowCursor cannot hide it. A layered alpha
+  // of 1 still hit-tests (same approach as the edge strips) without painting
+  // a black rectangle over the desktop.
+  LONG_PTR extra = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+  extra |= WS_EX_LAYERED | WS_EX_TOOLWINDOW;
+  extra &= ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT);
+  SetWindowLongPtr(hwnd, GWL_EXSTYLE, extra);
+  SetLayeredWindowAttributes(hwnd, 0, 1, LWA_ALPHA);
+  SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
+  InvalidateRect(hwnd, nullptr, TRUE);
+  UpdateWindow(hwnd);
+}
+
+static void hideCursorHider(HWND hwnd)
+{
+  if (hwnd == nullptr)
+    return;
+
+  // Hide before clearing WS_EX_LAYERED. Windows ignores that style change
+  // on a window that is still visible.
+  SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_HIDEWINDOW);
+  LONG_PTR extra = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+  extra |= WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW;
+  extra &= ~static_cast<LONG_PTR>(WS_EX_LAYERED);
+  SetWindowLongPtr(hwnd, GWL_EXSTYLE, extra);
+  SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
+
+static void pushBlankCursor(HWND hwnd)
+{
+  SetCursor(nullptr);
+  if (hwnd != nullptr)
+    SendMessage(hwnd, WM_SETCURSOR, reinterpret_cast<WPARAM>(hwnd), MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
+}
+
+static LRESULT handleHiderMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, bool &handled)
+{
+  handled = false;
+  switch (msg) {
+  case WM_NCHITTEST:
+    if (IsWindowVisible(hwnd)) {
+      handled = true;
+      return HTCLIENT;
+    }
+    break;
+
+  case WM_SETCURSOR:
+    if (IsWindowVisible(hwnd)) {
+      SetCursor(nullptr);
+      handled = true;
+      return TRUE;
+    }
+    break;
+
+  case WM_ERASEBKGND:
+    if (IsWindowVisible(hwnd)) {
+      RECT rc{};
+      GetClientRect(hwnd, &rc);
+      FillRect(reinterpret_cast<HDC>(wParam), &rc, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
+      handled = true;
+      return 1;
+    }
+    break;
+
+  case WM_PAINT: {
+    PAINTSTRUCT ps{};
+    BeginPaint(hwnd, &ps);
+    EndPaint(hwnd, &ps);
+    handled = true;
+    return 0;
+  }
+
+  default:
+    break;
+  }
+  return 0;
+}
+
 //
 // MSWindowsDesks
 //
@@ -123,6 +318,7 @@ MSWindowsDesks::MSWindowsDesks(
 {
 
   m_cursor = createBlankCursor();
+  s_blankCursor = m_cursor;
   m_deskClass = createDeskWindowClass(m_isPrimary);
   m_keyLayout = AppUtilWindows::instance().getCurrentKeyboardLayout();
   resetOptions();
@@ -131,8 +327,10 @@ MSWindowsDesks::MSWindowsDesks(
 MSWindowsDesks::~MSWindowsDesks()
 {
   disable();
+  restoreSystemCursors();
   destroyClass(m_deskClass);
   destroyCursor(m_cursor);
+  s_blankCursor = nullptr;
   delete m_updateKeys;
 }
 
@@ -447,25 +645,40 @@ void MSWindowsDesks::destroyWindow(HWND hwnd) const
 
 LRESULT CALLBACK MSWindowsDesks::primaryDeskProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+  bool handled = false;
+  const LRESULT result = handleHiderMessage(hwnd, msg, wParam, lParam, handled);
+  if (handled)
+    return result;
   return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
 LRESULT CALLBACK MSWindowsDesks::secondaryDeskProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-  // would like to detect any local user input and hide the hider
-  // window but for now we just detect mouse motion.
+  bool handled = false;
+  const LRESULT result = handleHiderMessage(hwnd, msg, wParam, lParam, handled);
+  if (handled)
+    return result;
+
+  // Local motion that leaves the hider means the user grabbed the physical
+  // mouse. Hide our window and put the system cursors back. Judge that from
+  // the pointer's position now, not from lParam: the park warp's message can
+  // be delivered after the hider has moved.
   bool hide = false;
-  switch (msg) {
-  case WM_MOUSEMOVE:
-    if (LOWORD(lParam) != 0 || HIWORD(lParam) != 0) {
-      hide = true;
+  if (!s_suppressHiderDismiss && msg == WM_MOUSEMOVE) {
+    POINT pos{};
+    RECT rc{};
+    if (GetCursorPos(&pos) && GetWindowRect(hwnd, &rc)) {
+      hide = dismissHiderOnLocalMove(
+          static_cast<int32_t>(pos.x - rc.left), static_cast<int32_t>(pos.y - rc.top), rc.right - rc.left,
+          rc.bottom - rc.top
+      );
     }
-    break;
   }
 
   if (hide && IsWindowVisible(hwnd)) {
     ReleaseCapture();
-    SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_HIDEWINDOW);
+    hideCursorHider(hwnd);
+    restoreSystemCursors();
   }
 
   return DefWindowProc(hwnd, msg, wParam, lParam);
@@ -550,10 +763,17 @@ void MSWindowsDesks::deskMouseRelativeMove(int32_t dx, int32_t dy) const
  * Wraps the `ShowCursor` function and calls it repeatedly until the cursor visibility is at
  * the desired state. Windows maintains an internal counter for cursor visibility, and only
  * shows or hides the cursor when it reaches a certain threshold.
+ *
+ * That counter is per thread and only applies while the pointer is over a window this
+ * thread created. Replacing the system cursor sprites hides the arrow everywhere else.
  */
 void setCursorVisibility(bool visible)
 {
   LOG_DEBUG("%s cursor", visible ? "showing" : "hiding");
+  if (visible)
+    restoreSystemCursors();
+  else
+    blankSystemCursors();
 
   const int max = 10;
   int attempts = 0;
@@ -590,9 +810,11 @@ void MSWindowsDesks::deskEnter(Desk *desk)
     }
   }
 
+  // Drop the hider before restoring the system sprites, or its WM_SETCURSOR
+  // handler puts the blank cursor back on top of the arrow.
+  hideCursorHider(desk->m_window);
   setCursorVisibility(true);
-
-  SetWindowPos(desk->m_window, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_HIDEWINDOW);
+  SetCursor(LoadCursor(nullptr, IDC_ARROW));
 
   // restore the foreground window
   // XXX -- this raises the window to the top of the Z-order.  we
@@ -609,37 +831,102 @@ void MSWindowsDesks::deskEnter(Desk *desk)
   desk->m_foregroundWindow = nullptr;
 }
 
+void MSWindowsDesks::moveHiderUnderPointer(Desk *desk) const
+{
+  if (desk == nullptr || desk->m_window == nullptr)
+    return;
+  // Without low-level hooks the cursor jitters, so the hider already
+  // covers every monitor. Do not shrink it to the pointer.
+  if (m_isPrimary && !desk->m_lowLevel)
+    return;
+
+  POINT pos{m_xCenter, m_yCenter};
+  if (!GetCursorPos(&pos)) {
+    pos.x = m_xCenter;
+    pos.y = m_yCenter;
+  }
+
+  const auto rect = cursorHiderRect(static_cast<int32_t>(pos.x), static_cast<int32_t>(pos.y), kCursorHiderSlop);
+  const bool over = pointerOverHider(static_cast<int32_t>(pos.x), static_cast<int32_t>(pos.y), rect);
+  s_suppressHiderDismiss = true;
+  showCursorHider(desk->m_window, rect.x, rect.y, rect.w, rect.h, true);
+  pushBlankCursor(desk->m_window);
+  s_suppressHiderDismiss = false;
+  LOG_DEBUG(
+      "cursor hider at %d,%d %dx%d under pointer %d,%d", rect.x, rect.y, rect.w, rect.h, static_cast<int>(pos.x),
+      static_cast<int>(pos.y)
+  );
+  if (showCursorCannotHide(true, over))
+    LOG_ERR("cursor hider does not contain the pointer");
+}
+
+void MSWindowsDesks::parkPointerForHider(Desk *desk) const
+{
+  if (desk == nullptr || desk->m_window == nullptr)
+    return;
+
+  // Center the pointer on the hider. The primary low-level path used to
+  // skip this, so the hardware cursor stayed on the leave edge (often the
+  // last pixel) while a 1x1 window sat at the screen center.
+  // The main thread is blocked in leave() and discards the mouse message
+  // this posts, so the half-screen delta is not delivered.
+  s_suppressHiderDismiss = true;
+  if (!m_isPrimary) {
+    // Watch for real local motion so the physical mouse still works.
+    // Capture is not taken on the primary: stealing it would cancel an
+    // OLE drag that already entered the edge strip.
+    SetCapture(desk->m_window);
+    // Let the blank system cursor settle before the warp, or the arrow
+    // flashes at the center for a frame.
+    ARCH->sleep(0.03);
+  }
+  LOG_VERBOSE("centering cursor on leave: %+d,%+d", m_xCenter, m_yCenter);
+  deskMouseMove(m_xCenter, m_yCenter);
+  s_suppressHiderDismiss = false;
+
+  // If the warp did not land (the jump-zone hook can eat a move that is
+  // still on the edge pixel), follow the pointer instead of leaving the
+  // hider at the center.
+  moveHiderUnderPointer(desk);
+  if (!m_isPrimary)
+    SetCapture(desk->m_window);
+}
+
+void MSWindowsDesks::anchorCursorHider() const
+{
+  sendMessage(DESKFLOW_MSG_ANCHOR_CURSOR, 0, 0);
+}
+
 void MSWindowsDesks::deskLeave(Desk *desk, HKL keyLayout)
 {
   if (!m_isPrimary && m_relativeMouseMoves) {
     saveRelativeRestorePosition(desk);
   }
 
+  // Blanks the system sprites first. ShowCursor alone leaves the arrow
+  // on screen when the pointer is over another thread's window.
   setCursorVisibility(false);
+
+  // Low-level hooks hold the pointer still, so a window around the
+  // pointer is enough. Without them the pointer jitters and the hider
+  // has to cover every monitor.
+  const bool smallHider = !m_isPrimary || desk->m_lowLevel;
+  if (smallHider) {
+    // Low-level install disables the hider so it cannot activate. Enable it
+    // while the pointer is away so it can own the hit and, on a client,
+    // capture local motion. deskEnter disables it again.
+    if (desk->m_window != nullptr)
+      EnableWindow(desk->m_window, TRUE);
+    const auto rect = cursorHiderRect(m_xCenter, m_yCenter, kCursorHiderSlop);
+    showCursorHider(desk->m_window, rect.x, rect.y, rect.w, rect.h, true);
+  } else {
+    showCursorHider(desk->m_window, m_x, m_y, m_w, m_h, false);
+  }
 
   if (m_isPrimary) {
     // map a window to hide the cursor and to use whatever keyboard
     // layout we choose rather than the keyboard layout of the last
     // active window.
-    int x, y, w, h;
-    if (desk->m_lowLevel) {
-      // with a low level hook the cursor will never budge so
-      // just a 1x1 window is sufficient.
-      x = m_xCenter;
-      y = m_yCenter;
-      w = 1;
-      h = 1;
-    } else {
-      // with regular hooks the cursor will jitter as it's moved
-      // by the user then back to the center by us.  to be sure
-      // we never lose it, cover all the monitors with the window.
-      x = m_x;
-      y = m_y;
-      w = m_w;
-      h = m_h;
-    }
-    SetWindowPos(desk->m_window, HWND_TOP, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-
     // switch to requested keyboard layout
     ActivateKeyboardLayout(keyLayout, 0);
 
@@ -649,6 +936,7 @@ void MSWindowsDesks::deskLeave(Desk *desk, HKL keyLayout)
     // disable the window (see handling of DESKFLOW_MSG_SWITCH).
     if (!desk->m_lowLevel) {
       SetActiveWindow(desk->m_window);
+      pushBlankCursor(desk->m_window);
     }
 
     // if using low-level hooks then disable the foreground window
@@ -660,9 +948,10 @@ void MSWindowsDesks::deskLeave(Desk *desk, HKL keyLayout)
     // note that we must enable the window to activate it and we
     // need to disable the window on deskEnter.
     else {
+      // Keyboard activation still needs a foreground window. The hider was
+      // enabled above so it can own the pointer.
       desk->m_foregroundWindow = getForegroundWindow();
       if (desk->m_foregroundWindow != nullptr) {
-        EnableWindow(desk->m_window, TRUE);
         SetActiveWindow(desk->m_window);
         DWORD thisThread = GetWindowThreadProcessId(desk->m_window, nullptr);
         DWORD thatThread = GetWindowThreadProcessId(desk->m_foregroundWindow, nullptr);
@@ -671,28 +960,10 @@ void MSWindowsDesks::deskLeave(Desk *desk, HKL keyLayout)
         SetForegroundWindow(desk->m_window);
         AttachThreadInput(thatThread, thisThread, FALSE);
       }
+      parkPointerForHider(desk);
     }
   } else {
-    // move hider window under the cursor center, raise, and show it
-    SetWindowPos(desk->m_window, HWND_TOP, m_xCenter, m_yCenter, 1, 1, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-
-    // watch for mouse motion.  if we see any then we hide the
-    // hider window so the user can use the physically attached
-    // mouse if desired.  we'd rather not capture the mouse but
-    // we aren't notified when the mouse leaves our window.
-    SetCapture(desk->m_window);
-
-    // windows can take a while to hide the cursor, so wait a few milliseconds to ensure the cursor
-    // is hidden before centering. this doesn't seem to affect the fluidity of the transition.
-    // without this, the cursor appears to flicker in the center of the screen which is annoying.
-    // a slightly more elegant but complex solution could be to use a timed event.
-    // 30 ms seems to work well enough without making the transition feel janky; a lower number
-    // would be better but 10 ms doesn't seem to be quite long enough, as we get noticeable flicker.
-    // this is largely a balance and out of our control, since windows can be unpredictable...
-    // maybe another approach would be to repeatedly check the cursor visibility until it is hidden.
-    LOG_VERBOSE("centering cursor on leave: %+d,%+d", m_xCenter, m_yCenter);
-    ARCH->sleep(0.03);
-    deskMouseMove(m_xCenter, m_yCenter);
+    parkPointerForHider(desk);
   }
 }
 
@@ -771,6 +1042,14 @@ void MSWindowsDesks::deskThread(const void *vdesk)
       m_isOnScreen = false;
       m_keyLayout = (HKL)msg.wParam;
       deskLeave(desk, m_keyLayout);
+      break;
+
+    case DESKFLOW_MSG_ANCHOR_CURSOR:
+      // The primary warps to the center after deskLeave returns. Cover
+      // wherever the pointer actually is. Skip when the user already
+      // dismissed the hider with the physical mouse.
+      if (!m_isOnScreen && IsWindowVisible(desk->m_window))
+        moveHiderUnderPointer(desk);
       break;
 
     case DESKFLOW_MSG_FAKE_KEY:
