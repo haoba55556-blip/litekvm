@@ -146,7 +146,12 @@ public:
   /// Files/folders from URLs, text/uri-list, or a Windows CF_HDROP blob.
   /// A bitmap with no file list is written into @p imageDirectory and returned
   /// with intent "image". Empty paths means "not a file or image payload".
+  /// CF_HDROP paths are kept when hasUrls() is true but urls() is still empty.
   static CapturedPayload capture(const QMimeData *mime, const QString &imageDirectory);
+
+  /// GUI-visible diagnostic. qInfo (log panel) plus one line appended to the
+  /// configured log file. Skipped on disk when QT_QPA_PLATFORM=offscreen.
+  static void traceStage(const QString &stage, const QString &detail);
 
   /// DROPFILES (CF_HDROP) -> native paths. @p bytes is the raw clipboard
   /// format, little-endian, ANSI or UTF-16 as the fWide flag says.

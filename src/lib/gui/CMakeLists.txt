@@ -146,3 +146,7 @@ target_link_libraries(${target}
     net
     Qt6::Widgets
 )
+
+if(WIN32)
+  target_link_libraries(${target} PRIVATE ole32 oleaut32 shell32)
+endif()

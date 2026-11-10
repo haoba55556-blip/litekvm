@@ -36,19 +36,28 @@
 #include "gui/widgets/EdgeFileDrop.h"
 #include "gui/widgets/LogDock.h"
 #include "litekvm/AutoStart.h"
+#include "litekvm/ClipRoute.h"
 #include "litekvm/ClipboardFileBridge.h"
 #include "litekvm/DiscoveryService.h"
+#include "litekvm/DropFileLand.h"
 #include "net/FingerprintDatabase.h"
 #include "widgets/StatusBar.h"
 
 #include <QAbstractButton>
 #include <QCheckBox>
 #include <QCloseEvent>
+#include <QCoreApplication>
+#include <QCursor>
+#include <QDateTime>
 #include <QDesktopServices>
+#include <QDir>
 #include <QDirIterator>
 #include <QDrag>
+#include <QElapsedTimer>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QInputDialog>
 #include <QLocalServer>
 #include <QLocalSocket>
@@ -68,6 +77,22 @@
 
 #if defined(Q_OS_MACOS)
 #include <ApplicationServices/ApplicationServices.h>
+#endif
+
+#if defined(Q_OS_WIN)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+// exdisp.h uses the COM `interface` macro from windows.h and objbase.h.
+// clang-format would sort these includes and put exdisp.h first, which breaks MSVC.
+// clang-format off
+#include <windows.h>
+#include <objbase.h>
+#include <objidl.h>
+#include <exdisp.h>
+#include <shlobj.h>
+#include <shobjidl.h>
+// clang-format on
 #endif
 
 using namespace deskflow::gui;
@@ -335,6 +360,13 @@ void MainWindow::reworkPanels()
 
   m_edgeDrop = new deskflow::gui::EdgeFileDrop(this);
   connect(m_edgeDrop, &deskflow::gui::EdgeFileDrop::filesDragged, this, &MainWindow::onEdgeFilesDragged);
+  m_remoteDragTimer = new QTimer(this);
+  m_remoteDragTimer->setInterval(16);
+  connect(m_remoteDragTimer, &QTimer::timeout, this, &MainWindow::pollRemoteDrag);
+  // setupFileClipboard() already applied this setting, but m_edgeDrop was still
+  // null, so setEnabled was skipped and the edge strips were never created.
+  // Settings changes later call this again; startup must do it once the object exists.
+  applyFileClipboardSettings();
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -381,6 +413,7 @@ void MainWindow::connectSlots()
 
   connect(&m_coreProcess, &CoreProcess::connectedClientsChanged, this, &MainWindow::serverClientsChanged);
   connect(&m_coreProcess, &CoreProcess::peerSocketAddress, m_liteKvmController, &LiteKvmController::noteLivePeer);
+  connect(&m_coreProcess, &CoreProcess::activeScreenChanged, this, &MainWindow::onActiveScreen);
   connect(&m_coreProcess, &CoreProcess::unrecognisedClient, this, &MainWindow::handleUnrecognisedClient);
   connect(&m_coreProcess, &CoreProcess::connectionRefused, this, &MainWindow::handleConnectionRefused);
   connect(&m_coreProcess, &CoreProcess::retryIn, this, &MainWindow::updateTimeoutDelay);
@@ -1544,24 +1577,321 @@ void MainWindow::onAutoSessionRequested(const litekvm::DiscoveredPeer &peer)
 
 void MainWindow::onEdgeFilesDragged(const QStringList &paths)
 {
-  if (!m_fileClipboardEnabled || paths.isEmpty())
+  if (!m_fileClipboardEnabled || paths.isEmpty()) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("sendFiles"),
+        QStringLiteral("intent=drag skipped enabled=%1 paths=%2").arg(m_fileClipboardEnabled ? 1 : 0).arg(paths.size())
+    );
+    if (m_edgeDrop)
+      m_edgeDrop->abandonDrag();
     return;
-  // Drag is a gesture: don't stop to ask. The other side auto-accepts intent=drag.
-  sendFiles(paths, true, QStringLiteral("drag"));
+  }
+  // Return to the drag loop first. Connecting from inside DragEnter left the
+  // offer unsent when the thread could not finish the handshake.
+  QTimer::singleShot(0, this, [this, paths] {
+    if (!sendFiles(paths, true, QStringLiteral("drag")) && m_edgeDrop)
+      m_edgeDrop->abandonDrag();
+  });
+}
+
+namespace {
+
+bool dragButtonHeld()
+{
+#if defined(Q_OS_WIN)
+  return (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+#else
+  return QGuiApplication::mouseButtons().testFlag(Qt::LeftButton);
+#endif
+}
+
+#if defined(Q_OS_WIN)
+QString desktopDirectory()
+{
+  PWSTR wide = nullptr;
+  if (FAILED(SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &wide)) || wide == nullptr)
+    return {};
+  const QString path = QDir::toNativeSeparators(QString::fromWCharArray(wide));
+  CoTaskMemFree(wide);
+  return path;
+}
+
+bool isOwnQtWindow(HWND hwnd)
+{
+  DWORD pid = 0;
+  GetWindowThreadProcessId(hwnd, &pid);
+  if (pid != GetCurrentProcessId())
+    return false;
+  wchar_t cls[160] = {};
+  GetClassNameW(hwnd, cls, 160);
+  return wcsstr(cls, L"Qt") != nullptr && wcsstr(cls, L"QWindow") != nullptr;
+}
+
+// Topmost Qt::Tool strips sit above the desktop. WindowFromPoint hits those
+// and never sees Progman/WorkerW. Walk the z-order and skip our own tools.
+HWND shellWindowAt(POINT pt, QString *windowClass)
+{
+  HWND hwnd = GetTopWindow(nullptr);
+  while (hwnd != nullptr) {
+    if (IsWindowVisible(hwnd) && !IsIconic(hwnd) && !isOwnQtWindow(hwnd)) {
+      RECT rect{};
+      if (GetWindowRect(hwnd, &rect) && PtInRect(&rect, pt)) {
+        wchar_t cls[160] = {};
+        GetClassNameW(hwnd, cls, 160);
+        const bool shell = wcscmp(cls, L"Progman") == 0 || wcscmp(cls, L"WorkerW") == 0 ||
+                           wcscmp(cls, L"CabinetWClass") == 0 || wcscmp(cls, L"ExploreWClass") == 0;
+        if (shell) {
+          if (windowClass != nullptr)
+            *windowClass = QString::fromWCharArray(cls);
+          return hwnd;
+        }
+      }
+    }
+    hwnd = GetWindow(hwnd, GW_HWNDNEXT);
+  }
+  if (windowClass != nullptr)
+    windowClass->clear();
+  return nullptr;
+}
+
+QString shellFolderAtCursor(QString *windowClass)
+{
+  POINT pt{};
+  if (!GetCursorPos(&pt))
+    return {};
+  const HWND root = shellWindowAt(pt, windowClass);
+  if (root == nullptr)
+    return {};
+  wchar_t cls[160] = {};
+  GetClassNameW(root, cls, 160);
+  const bool desktop = wcscmp(cls, L"Progman") == 0 || wcscmp(cls, L"WorkerW") == 0;
+  if (desktop)
+    return desktopDirectory();
+
+  IShellWindows *windows = nullptr;
+  if (FAILED(CoCreateInstance(CLSID_ShellWindows, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&windows))) || windows == nullptr)
+    return {};
+  long count = 0;
+  windows->get_Count(&count);
+  QString found;
+  for (long i = 0; i < count && found.isEmpty(); ++i) {
+    VARIANT index;
+    VariantInit(&index);
+    index.vt = VT_I4;
+    index.lVal = i;
+    IDispatch *dispatch = nullptr;
+    if (FAILED(windows->Item(index, &dispatch)) || dispatch == nullptr) {
+      VariantClear(&index);
+      continue;
+    }
+    IWebBrowser2 *browser = nullptr;
+    if (SUCCEEDED(dispatch->QueryInterface(IID_PPV_ARGS(&browser))) && browser != nullptr) {
+      SHANDLE_PTR handle = 0;
+      if (SUCCEEDED(browser->get_HWND(&handle)) && reinterpret_cast<HWND>(handle) == root) {
+        BSTR url = nullptr;
+        if (SUCCEEDED(browser->get_LocationURL(&url)) && url != nullptr) {
+          const QUrl location(QString::fromWCharArray(url));
+          if (location.isLocalFile())
+            found = location.toLocalFile();
+          SysFreeString(url);
+        }
+      }
+      browser->Release();
+    }
+    dispatch->Release();
+    VariantClear(&index);
+  }
+  windows->Release();
+  return found;
+}
+
+QString placeFilesInFolder(const QStringList &paths, const QString &directory)
+{
+  QStringList landed;
+  for (const QString &path : paths) {
+    const qint64 size = QFileInfo(path).size();
+    const litekvm::LandedFile file = litekvm::landFinishedFile(path, directory, size);
+    if (file.ok)
+      landed.append(file.path);
+  }
+  return landed.join(QLatin1Char(';'));
+}
+
+void copyDragUnderCursor(const QStringList &paths, const char *reason)
+{
+  QString windowClass;
+  QString folder = shellFolderAtCursor(&windowClass);
+  if (folder.isEmpty()) {
+    folder = desktopDirectory();
+    if (windowClass.isEmpty())
+      windowClass = QStringLiteral("desktop-fallback");
+  }
+  const QString landed = folder.isEmpty() ? QString() : placeFilesInFolder(paths, folder);
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("drop-file"), QStringLiteral("class=%1 dir=%2 landed=%3 reason=%4")
+                                       .arg(
+                                           windowClass.isEmpty() ? QStringLiteral("-") : windowClass,
+                                           folder.isEmpty() ? QStringLiteral("-") : folder,
+                                           landed.isEmpty() ? QStringLiteral("-") : landed, QString::fromLatin1(reason)
+                                       )
+  );
+}
+#endif
+
+#if !defined(Q_OS_WIN)
+QString dropActionName(Qt::DropAction action)
+{
+  switch (action) {
+  case Qt::CopyAction:
+    return QStringLiteral("copy");
+  case Qt::MoveAction:
+    return QStringLiteral("move");
+  case Qt::LinkAction:
+    return QStringLiteral("link");
+  case Qt::IgnoreAction:
+    return QStringLiteral("none");
+  default:
+    return QString::number(int(action));
+  }
+}
+
+void startQtDrag(const QStringList &paths)
+{
+  auto *sourceWidget = new QWidget(nullptr, Qt::Tool | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
+  sourceWidget->setFixedSize(1, 1);
+  sourceWidget->move(QCursor::pos());
+  sourceWidget->show();
+  auto *mime = litekvm::ClipboardFileBridge::makeFileMimeData(paths);
+  if (mime == nullptr) {
+    sourceWidget->deleteLater();
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("remote-drag"), QStringLiteral("result=none reason=no-mime")
+    );
+    return;
+  }
+  QDrag drag(sourceWidget);
+  drag.setMimeData(mime);
+  const Qt::DropAction result = drag.exec(Qt::CopyAction);
+  sourceWidget->deleteLater();
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("remote-drag"), QStringLiteral("result=%1 paths=%2").arg(dropActionName(result)).arg(paths.size())
+  );
+}
+#endif
+
+} // namespace
+
+void MainWindow::onActiveScreen(const QString &screen)
+{
+  const QString self = Settings::value(Settings::Core::ComputerName).toString();
+  const bool local = !self.isEmpty() && screen.compare(self, Qt::CaseInsensitive) == 0;
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("pointer"), QStringLiteral("screen=%1 self=%2 local=%3").arg(screen, self).arg(local ? 1 : 0)
+  );
+  m_dragLand.setPointerLocal(local);
+  if (!local)
+    return;
+  QString reason;
+  const QStringList paths = m_dragLand.takeIfPointerLocal(&reason);
+  if (paths.isEmpty())
+    return;
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("remote-drag"),
+      QStringLiteral("resume reason=%1 paths=%2 first=%3").arg(reason).arg(paths.size()).arg(paths.value(0))
+  );
+  startRemoteDrag(paths);
 }
 
 void MainWindow::startRemoteDrag(const QStringList &paths)
 {
-  QWidget *source = m_edgeDrop ? m_edgeDrop->dragSource() : nullptr;
-  if (!source || paths.isEmpty())
+  if (paths.isEmpty()) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("remote-drag"), QStringLiteral("result=none reason=no-paths")
+    );
     return;
-  auto *mime = litekvm::ClipboardFileBridge::makeFileMimeData(paths);
-  if (!mime)
+  }
+  if (m_remoteDragActive) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("remote-drag"), QStringLiteral("result=none reason=busy paths=%1").arg(paths.size())
+    );
     return;
-  QDrag drag(source);
-  drag.setMimeData(mime); // QDrag takes ownership
-  // Windows: QDrag::exec is DoDragDrop. The cursor is already on this machine.
-  drag.exec(Qt::CopyAction);
+  }
+  if (!m_remoteDropLatch.accept(paths, QDateTime::currentMSecsSinceEpoch())) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("remote-drag"), QStringLiteral("result=none reason=duplicate paths=%1").arg(paths.size())
+    );
+    return;
+  }
+
+  // Do not block this thread and do not call DoDragDrop. Both stalled the
+  // peer for as long as the button was held (or for a 2 s wait when the
+  // button was already up). The shell drop was cancelled and the file was
+  // copied afterwards anyway.
+  m_remoteDragActive = true;
+  m_remoteDragPaths = paths;
+  m_remoteDragWait.reset();
+  m_remoteDragClock.start();
+  if (m_edgeDrop != nullptr)
+    m_edgeDrop->setPassThrough(true);
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("remote-drag"), QStringLiteral("start paths=%1 first=%2").arg(paths.size()).arg(paths.first())
+  );
+  pollRemoteDrag();
+}
+
+void MainWindow::pollRemoteDrag()
+{
+  if (!m_remoteDragActive)
+    return;
+
+  const bool held = dragButtonHeld();
+#if !defined(Q_OS_WIN)
+  if (held) {
+    m_remoteDragActive = false;
+    if (m_remoteDragTimer != nullptr)
+      m_remoteDragTimer->stop();
+    const QStringList paths = m_remoteDragPaths;
+    m_remoteDragPaths.clear();
+    if (m_edgeDrop != nullptr)
+      m_edgeDrop->setPassThrough(false);
+    startQtDrag(paths);
+    return;
+  }
+#endif
+
+  const auto decision = m_remoteDragWait.tick(held, m_remoteDragClock.elapsed());
+  if (decision == litekvm::RemoteDragWait::Decision::KeepWaiting) {
+    if (m_remoteDragTimer != nullptr && !m_remoteDragTimer->isActive())
+      m_remoteDragTimer->start();
+    return;
+  }
+  finishRemoteDrag(litekvm::RemoteDragWait::reason(decision));
+}
+
+void MainWindow::finishRemoteDrag(const char *reason)
+{
+  if (m_remoteDragTimer != nullptr)
+    m_remoteDragTimer->stop();
+  const QStringList paths = m_remoteDragPaths;
+  m_remoteDragPaths.clear();
+  // Clear the flag before the shell lookup. That call can pump COM messages
+  // and re-enter this timer; a second copy would land the file twice.
+  m_remoteDragActive = false;
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("remote-drag"),
+      QStringLiteral("result=copy reason=%1 paths=%2").arg(QString::fromLatin1(reason)).arg(paths.size())
+  );
+#if defined(Q_OS_WIN)
+  copyDragUnderCursor(paths, reason);
+#else
+  Q_UNUSED(paths)
+#endif
+  if (m_edgeDrop != nullptr) {
+    // Drop the arm before clearing pass-through, or a still-latched drag
+    // pops the strips back up over the window we just copied into.
+    m_edgeDrop->setStripsArmed(false);
+    m_edgeDrop->setPassThrough(false);
+  }
 }
 
 bool MainWindow::askVisible(const QString &title, const QString &text, const QString &detail)
@@ -1593,10 +1923,22 @@ void MainWindow::requestSendFiles()
   sendFiles(paths, false);
 }
 
-void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const QString &intent)
+bool MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const QString &intent)
 {
-  if (!m_liteKvmController || !m_fileClipboardEnabled || paths.isEmpty())
-    return;
+  const QString wireIntent = intent.isEmpty() ? QStringLiteral("clipboard") : intent;
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("sendFiles"), QStringLiteral("intent=%1 paths=%2").arg(wireIntent).arg(paths.size())
+  );
+  if (!m_liteKvmController || !m_fileClipboardEnabled || paths.isEmpty()) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("sendFiles"),
+        QStringLiteral("intent=%1 aborted no-controller-or-disabled-or-empty").arg(wireIntent)
+    );
+    return false;
+  }
+
+  if (wireIntent == QLatin1String("drag"))
+    m_liteKvmController->dropIdleFileSession();
 
   const auto report = [this, fromClipboard](const QString &message) {
     if (fromClipboard)
@@ -1606,37 +1948,49 @@ void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const Q
   };
 
   if (m_liteKvmController->transferActive()) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("sendFiles"), QStringLiteral("intent=%1 aborted transfer-active").arg(wireIntent)
+    );
     report(tr("已经有一个文件传输在进行中，等它结束再发送吧。"));
-    return;
+    return false;
   }
 
   const qint64 totalBytes = localFilesSize(paths);
   const qint64 maxBytes = qint64(Settings::value(Settings::LiteKvm::FileClipboardMaxMb).toInt()) * 1024 * 1024;
   if (maxBytes > 0 && totalBytes > maxBytes) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("sendFiles"),
+        QStringLiteral("intent=%1 aborted too-large bytes=%2 max=%3").arg(wireIntent).arg(totalBytes).arg(maxBytes)
+    );
     report(tr("这批文件共 %1，超过单次上限 %2，没有发送。可以到设置里调大「单次上限」。")
                .arg(
                    ClipTransferDialog::formatBytes(quint64(totalBytes)),
                    ClipTransferDialog::formatBytes(quint64(maxBytes))
                ));
-    return;
+    return false;
   }
 
   const QList<LiteKvmController::ClipTarget> targets = m_liteKvmController->clipTargets();
   if (targets.isEmpty()) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("sendFiles"), QStringLiteral("intent=%1 aborted no-paired-target").arg(wireIntent)
+    );
     if (fromClipboard) {
       notifyUser(tr("剪贴板里有文件，但附近没有已配对的电脑，未发送。"));
-      return;
+      return false;
     }
     report(tr("附近没有已配对的电脑，先在「附近的电脑」里配对一台再发文件。"));
-    return;
+    return false;
   }
 
   QString deviceId;
   QString peerName;
+  QString peerHost;
   if (targets.size() == 1) {
     // 只有一台已配对设备，直接用它
     deviceId = targets.first().deviceId;
     peerName = targets.first().name;
+    peerHost = targets.first().host;
   } else {
     QStringList labels;
     for (const auto &target : targets)
@@ -1646,24 +2000,46 @@ void MainWindow::sendFiles(const QStringList &paths, bool fromClipboard, const Q
     const QString chosen =
         QInputDialog::getItem(this, tr("发送到哪台电脑"), tr("选择接收文件的电脑："), labels, 0, false, &ok);
     const int index = ok ? labels.indexOf(chosen) : -1;
-    if (index < 0)
-      return;
+    if (index < 0) {
+      litekvm::ClipboardFileBridge::traceStage(
+          QStringLiteral("sendFiles"), QStringLiteral("intent=%1 aborted target-not-chosen").arg(wireIntent)
+      );
+      return false;
+    }
     deviceId = targets.at(index).deviceId;
     peerName = targets.at(index).name;
+    peerHost = targets.at(index).host;
   }
 
-  const bool drag = intent == QLatin1String("drag");
+  if (litekvm::hostIsThisMachine(peerHost)) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("sendFiles"),
+        QStringLiteral("intent=%1 aborted self-host peer=%2 host=%3").arg(wireIntent, peerName, peerHost)
+    );
+    return false;
+  }
+
+  const bool drag = wireIntent == QLatin1String("drag");
   const bool autoSend = drag || (fromClipboard && Settings::value(Settings::LiteKvm::FileClipboardAutoSend).toBool());
   if (!autoSend) {
     const QString question = tr("要把 %1 个文件（共 %2）发送到「%3」吗？")
                                  .arg(paths.size())
                                  .arg(ClipTransferDialog::formatBytes(quint64(totalBytes)), peerName);
-    if (!askVisible(tr("发送文件"), question))
-      return;
+    if (!askVisible(tr("发送文件"), question)) {
+      litekvm::ClipboardFileBridge::traceStage(
+          QStringLiteral("sendFiles"), QStringLiteral("intent=%1 aborted user-declined").arg(wireIntent)
+      );
+      return false;
+    }
   }
 
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("sendFiles"),
+      QStringLiteral("intent=%1 sending peer=%2 host=%3 paths=%4").arg(wireIntent, peerName, peerHost).arg(paths.size())
+  );
   beginTransferUi(true, peerName, quint64(totalBytes));
-  m_liteKvmController->sendFilesToPeer(deviceId, paths, intent.isEmpty() ? QStringLiteral("clipboard") : intent);
+  m_liteKvmController->sendFilesToPeer(deviceId, paths, wireIntent);
+  return true;
 }
 
 void MainWindow::onLocalFilesCopied(const QStringList &paths, const QString &intent)
@@ -1703,6 +2079,12 @@ void MainWindow::onFileOfferReceived(
     preview += QStringLiteral("\n") + tr("…还有 %1 项").arg(fileNames.size() - 8);
 
   m_incomingClipIntent = intent.isEmpty() ? QStringLiteral("clipboard") : intent;
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("CLIP_OFFER-IN"), QStringLiteral("intent=%1 peer=%2 files=%3 bytes=%4")
+                                           .arg(m_incomingClipIntent, peerName)
+                                           .arg(fileCount)
+                                           .arg(totalBytes)
+  );
   // A drag is already in the user's hand; a confirmation dialog would cancel it.
   const bool autoAccept = m_incomingClipIntent == QLatin1String("drag") ||
                           Settings::value(Settings::LiteKvm::FileClipboardAutoAccept).toBool();
@@ -1713,11 +2095,18 @@ void MainWindow::onFileOfferReceived(
             .arg(fileCount)
             .arg(ClipTransferDialog::formatBytes(quint64(totalBytes)));
     if (!askVisible(tr("收到文件"), question, preview)) {
+      litekvm::ClipboardFileBridge::traceStage(
+          QStringLiteral("CLIP_REJECT"), QStringLiteral("intent=%1 peer=%2").arg(m_incomingClipIntent, peerName)
+      );
       m_liteKvmController->rejectIncomingFiles();
       return;
     }
   }
 
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("CLIP_ACCEPT"),
+      QStringLiteral("intent=%1 peer=%2 files=%3").arg(m_incomingClipIntent, peerName).arg(fileCount)
+  );
   beginTransferUi(false, peerName, quint64(totalBytes));
   m_liteKvmController->acceptIncomingFiles();
 }
@@ -1742,15 +2131,24 @@ void MainWindow::onFileTransferCompleted(const QStringList &localPaths, bool out
     message = folder.isEmpty() ? tr("✅ 已接收 %1 个文件").arg(localPaths.size())
                                : tr("✅ 已接收 %1 个文件到 %2").arg(localPaths.size()).arg(folder);
 
-    // 收到的文件直接挂到本机剪贴板，用户 Ctrl+V 就能用。
-    // 拖放过来的再起一次 QDrag（Windows 上是 DoDragDrop），光标已经在这台机器上。
-    if (m_liteKvmController && !localPaths.isEmpty())
-      m_liteKvmController->copyFilesToClipboard(localPaths);
     const QString intent = m_incomingClipIntent;
     m_incomingClipIntent.clear();
-    if (intent == QLatin1String("drag") && !localPaths.isEmpty()) {
-      const QStringList dragged = localPaths;
-      QTimer::singleShot(0, this, [this, dragged] { startRemoteDrag(dragged); });
+    if (intent == QLatin1String("drag")) {
+      QString reason;
+      const QStringList now = m_dragLand.receiveDrag(localPaths, &reason);
+      litekvm::ClipboardFileBridge::traceStage(
+          QStringLiteral("remote-drag"), QStringLiteral("decide reason=%1 paths=%2 first=%3")
+                                             .arg(reason)
+                                             .arg(localPaths.size())
+                                             .arg(localPaths.value(0))
+      );
+      if (!now.isEmpty()) {
+        // Drop under the cursor. Do not also plant the files on the clipboard;
+        // that is the copy-paste path and makes a drag feel like Ctrl+V.
+        QTimer::singleShot(0, this, [this, now] { startRemoteDrag(now); });
+      }
+    } else if (m_liteKvmController && !localPaths.isEmpty()) {
+      m_liteKvmController->copyFilesToClipboard(localPaths);
     }
   }
 
@@ -1759,6 +2157,12 @@ void MainWindow::onFileTransferCompleted(const QStringList &localPaths, bool out
 
 void MainWindow::onFileTransferFailed(const QString &message, bool outgoing)
 {
+  if (!outgoing && m_incomingClipIntent == QLatin1String("drag")) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("remote-drag"), QStringLiteral("skipped transfer-failed detail=%1").arg(message)
+    );
+    m_incomingClipIntent.clear();
+  }
   finishTransferUi(tr("❌ %1：%2").arg(outgoing ? tr("发送失败") : tr("接收失败"), message), true);
 }
 

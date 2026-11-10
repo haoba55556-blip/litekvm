@@ -466,7 +466,9 @@ Server *ServerApp::openServer(ServerConfig &config, PrimaryClient *primaryClient
 {
   auto *server = new Server(config, primaryClient, m_serverScreen, getEvents());
   try {
-    getEvents()->addHandler(EventTypes::ServerScreenSwitched, server, [this](const auto &) { handleScreenSwitched(); });
+    getEvents()->addHandler(EventTypes::ServerScreenSwitched, server, [this](const auto &event) {
+      handleScreenSwitched(event);
+    });
 
   } catch (std::bad_alloc &ba) {
     delete server;
@@ -476,9 +478,14 @@ Server *ServerApp::openServer(ServerConfig &config, PrimaryClient *primaryClient
   return server;
 }
 
-void ServerApp::handleScreenSwitched() const
+void ServerApp::handleScreenSwitched(const Event &event) const
 {
-  // do nothing
+  const auto *info = static_cast<const Server::SwitchToScreenInfo *>(event.getDataObject());
+  if (info == nullptr || info->m_screen.empty())
+    return;
+  // The GUI drops a file that arrived while the pointer was on the other
+  // computer only after this says the pointer is back.
+  ipcSendToClient(QStringLiteral("activeScreen"), QString::fromStdString(info->m_screen));
 }
 
 std::unique_ptr<ISocketFactory> ServerApp::getSocketFactory() const

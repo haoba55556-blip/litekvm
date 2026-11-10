@@ -138,6 +138,8 @@ public:
   void sendFilesTo(
       const QString &host, quint16 port, const QStringList &paths, const QString &intent = QStringLiteral("clipboard")
   );
+  /// Close a socket that is not moving bytes, so the next drag can offer.
+  void dropIdleSession();
 
   // ------------------------------------------------- receiver-side actions
   /// Answer the current CLIP_OFFER; a no-op when no transfer is live. The
@@ -170,6 +172,9 @@ public:
   QString peerName() const;
   /// True while a ClipFileTransfer is running.
   bool isBusy() const;
+  /// True while a socket or transfer is still open. A handshake failure clears
+  /// this even if the GUI still thinks a send is in progress.
+  bool hasSession() const;
   /// The live transfer, or nullptr between sessions (it is destroyed with the
   /// session, so read state from the forwarded signals once it ends).
   ClipFileTransfer *transfer() const;
@@ -217,8 +222,9 @@ private:
 
   Role m_role = Role::None;
   QByteArray m_buffer;
-  bool m_helloDone = false; ///< peer identity accepted; socket handed over
-  bool m_closing = false;   ///< re-entrancy guard for closeSession()
+  bool m_helloDone = false;        ///< peer identity accepted; socket handed over
+  bool m_closing = false;          ///< re-entrancy guard for closeSession()
+  bool m_pumpingHandshake = false; ///< sendFilesTo is driving the handshake
   QString m_peerDeviceId;
   QString m_peerName;
   QStringList m_pendingPaths; ///< client: staged by sendFilesTo()

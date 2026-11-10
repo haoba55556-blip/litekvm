@@ -13,6 +13,7 @@
 #include "common/NetworkProtocol.h"
 #include "deskflow/Clipboard.h"
 #include "deskflow/ClipboardTypes.h"
+#include "deskflow/JumpZoneMouse.h"
 #include "deskflow/KeyTypes.h"
 #include "deskflow/MouseTypes.h"
 #include "server/Config.h"
@@ -261,7 +262,9 @@ private:
 
   // update switch state due to a mouse move at \p x, \p y that
   // doesn't switch screens.
-  void noSwitch(int32_t x, int32_t y);
+  void noSwitch(int32_t x, int32_t y, bool keepDragHold = false);
+  bool dragEdgeGraceElapsed();
+  bool dragSettleActive();
 
   // stop switch timers
   void stopSwitch();
@@ -402,6 +405,12 @@ private:
   size_t m_maximumClipboardSize = INT_MAX;
   ClientListener *m_clientListener = nullptr;
   Stopwatch m_switchTwoTapTimer;
+  DragEdgeGrace m_dragEdgeGrace;
+  Stopwatch m_dragEdgeHold{true};
+  bool m_dragEdgeCrossAnnounced = false;
+  bool m_dragInsetLanding = false;
+  bool m_dragSettle = false;
+  Stopwatch m_dragSettleWatch{true};
 
   // Name of screen broadcasting the keyboard events
   std::string m_keyboardBroadcastingScreens;

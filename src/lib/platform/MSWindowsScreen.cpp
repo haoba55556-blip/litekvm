@@ -20,6 +20,7 @@
 #include "deskflow/App.h"
 #include "deskflow/ClientApp.h"
 #include "deskflow/Clipboard.h"
+#include "deskflow/JumpZoneMouse.h"
 #include "deskflow/KeyMap.h"
 #include "deskflow/ScreenException.h"
 #include "platform/MSWindowsClipboard.h"
@@ -667,13 +668,26 @@ int32_t MSWindowsScreen::getJumpZoneSize() const
 
 bool MSWindowsScreen::isAnyMouseButtonDown(uint32_t &buttonID) const
 {
-  static const char *buttonToName[] = {"<invalid>",    "Left Button", "Middle Button",
-                                       "Right Button", "X Button 1",  "X Button 2"};
+  // Shadow state misses Explorer's DoDragDrop: the physical button stays down
+  // but this thread's tracked m_buttons is already clear, so the server
+  // switches on the 1px edge before the GUI strip can see DragEnter.
+  static const struct
+  {
+    int vk;
+    uint32_t id;
+    const char *name;
+  } kButtons[] = {
+      {VK_LBUTTON, kButtonLeft, "Left Button"},   {VK_MBUTTON, kButtonMiddle, "Middle Button"},
+      {VK_RBUTTON, kButtonRight, "Right Button"}, {VK_XBUTTON1, kButtonExtra0, "X Button 1"},
+      {VK_XBUTTON2, kButtonExtra1, "X Button 2"},
+  };
 
-  for (uint32_t i = 1; i < sizeof(m_buttons) / sizeof(m_buttons[0]); ++i) {
-    if (m_buttons[i]) {
-      buttonID = i;
-      LOG_DEBUG("locked by \"%s\"", buttonToName[i]);
+  for (const auto &button : kButtons) {
+    const bool physical = (GetAsyncKeyState(button.vk) & 0x8000) != 0;
+    const bool tracked = button.id < NumButtonIDs && m_buttons[button.id];
+    if (physical || tracked) {
+      buttonID = button.id;
+      LOG_DEBUG("locked by \"%s\"", button.name);
       return true;
     }
   }
@@ -1252,16 +1266,11 @@ bool MSWindowsScreen::onMouseMove(int32_t mx, int32_t my)
     LOG_VERBOSE("centering cursor on motion: %+d,%+d", m_xCenter, m_yCenter);
     warpCursorNoFlush(m_xCenter, m_yCenter);
 
-    // examine the motion.  if it's about the distance
-    // from the center of the screen to an edge then
-    // it's probably a bogus motion that we want to
-    // ignore (see warpCursorNoFlush() for a further
-    // description).
-    static int32_t bogusZoneSize = 10;
-    if (-x + bogusZoneSize > m_xCenter - m_x || x + bogusZoneSize > m_x + m_w - m_xCenter ||
-        -y + bogusZoneSize > m_yCenter - m_y || y + bogusZoneSize > m_y + m_h - m_yCenter) {
-
-      LOG_DEBUG("dropped bogus delta motion: %+d,%+d", x, y);
+    // The center warp is about half a screen. A check that only drops
+    // deltas within 10 px of that distance lets a DPI-rounded warp through,
+    // and the other machine's pointer is thrown back across the edge.
+    if (isCenterWarpEcho(x, y, m_w, m_h)) {
+      LOG_VERBOSE("dropped bogus delta motion: %+d,%+d", x, y);
     } else {
       // send motion
       sendEvent(EventTypes::PrimaryScreenMotionOnSecondary, MotionInfo::alloc(x, y));

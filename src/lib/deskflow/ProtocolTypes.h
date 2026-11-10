@@ -960,6 +960,22 @@ extern const char *const kMsgDClipboard;
 extern const char *const kMsgDInfo;
 
 /**
+ * @brief Server screen name
+ *
+ * **Message Code**: `"DSNM"`
+ * **Direction**: Primary → Secondary
+ * **Format**: `"DSNM%s"`
+ * **Parameters**:
+ * - `$1`: Server screen name (length-prefixed string)
+ *
+ * The client used to report this peer as the placeholder `"server"`, so a
+ * file drag from the laptop was labeled and sometimes routed as this-device.
+ *
+ * @since Protocol version 1.8
+ */
+extern const char *const kMsgDScreenName;
+
+/**
  * @brief Set client options
  *
  * **Message Code**: `"DSOP"`

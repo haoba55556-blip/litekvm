@@ -90,10 +90,11 @@ void LiteKvmController::noteAutoSessionDown(const QString &deviceId)
 void LiteKvmController::noteLivePeer(const QString &screenName, const QString &host)
 {
   const QString addr = litekvm::DiscoveryService::normalizeHost(host);
-  if (addr.isEmpty() || !m_trust)
+  if (addr.isEmpty() || !m_trust || litekvm::hostIsThisMachine(addr))
     return;
   m_livePeerHost = addr;
   m_livePeerName = screenName;
+  const QString selfName = m_identity ? m_identity->name() : QString();
   const int paired = int(m_trust->entries().size());
   for (const auto &entry : m_trust->entries()) {
     litekvm::ClipRouteInput route;
@@ -102,8 +103,16 @@ void LiteKvmController::noteLivePeer(const QString &screenName, const QString &h
     route.deviceId = entry.deviceId;
     route.deviceName = entry.name;
     route.pairedCount = paired;
-    if (litekvm::liveHostApplies(route))
-      m_trust->updateLastAddr(entry.deviceId, addr);
+    if (!litekvm::liveHostApplies(route))
+      continue;
+    m_trust->updateLastAddr(entry.deviceId, addr);
+    const QString label = litekvm::clipPeerLabel(entry.name, screenName, selfName);
+    if (label != entry.name) {
+      litekvm::TrustEntry renamed = entry;
+      renamed.name = label;
+      renamed.lastAddr = addr;
+      m_trust->upsert(renamed);
+    }
   }
 }
 
@@ -231,6 +240,12 @@ void LiteKvmController::setupFileClipboard()
   });
 
   connect(m_clipFile, &litekvm::ClipFileService::errorOccurred, this, [this](const QString &message) {
+    // A busy error must not clear the flag while the other transfer is still
+    // the live session — the next drag would log "sending" and then drop the
+    // CLIP_OFFER because the socket is still held.
+    const bool live = m_clipFile && m_clipFile->transfer() && m_clipFile->transfer()->isActive();
+    if (!live)
+      m_transferActive = false;
     Q_EMIT fileClipboardError(message);
   });
 
@@ -296,11 +311,27 @@ void LiteKvmController::applyFileClipboardSettings()
     m_clipFile->setMaxTransferBytes(m_maxTransferBytes);
 }
 
+bool LiteKvmController::transferActive() const
+{
+  return m_clipFile && m_clipFile->transfer() && m_clipFile->transfer()->isActive();
+}
+
+void LiteKvmController::dropIdleFileSession()
+{
+  if (!m_clipFile)
+    return;
+  m_clipFile->dropIdleSession();
+  if (!m_clipFile->hasSession())
+    m_transferActive = false;
+}
+
 QList<LiteKvmController::ClipTarget> LiteKvmController::clipTargets() const
 {
   QList<ClipTarget> targets;
   QSet<QString> seen;
   const int paired = m_trust ? int(m_trust->entries().size()) : 0;
+  const QString selfId = m_identity ? m_identity->deviceId() : QString();
+  const QString selfName = m_identity ? m_identity->name() : QString();
 
   auto routeHost = [&](const QString &deviceId, const QString &name, const QString &discovered,
                        const QString &trusted) {
@@ -325,10 +356,17 @@ QList<LiteKvmController::ClipTarget> LiteKvmController::clipTargets() const
         if (const auto *entry = m_trust->find(peer.deviceId))
           trusted = entry->lastAddr;
       }
-      const QString host = routeHost(peer.deviceId, peer.name, peer.host, trusted);
-      if (host.isEmpty())
+      if (!selfId.isEmpty() && peer.deviceId == selfId)
         continue;
-      targets.append(ClipTarget{peer.deviceId, peer.name, peer.platform, host, clipFilePort(), true});
+      const QString host = routeHost(peer.deviceId, peer.name, peer.host, trusted);
+      if (host.isEmpty() || litekvm::hostIsThisMachine(host))
+        continue;
+      const QString label = litekvm::liveHostApplies(
+                                {m_livePeerHost, m_livePeerName, peer.deviceId, peer.name, paired, peer.host, trusted}
+                            )
+                                ? litekvm::clipPeerLabel(peer.name, m_livePeerName, selfName)
+                                : peer.name;
+      targets.append(ClipTarget{peer.deviceId, label, peer.platform, host, clipFilePort(), true});
       seen.insert(peer.deviceId);
     }
   }
@@ -336,15 +374,16 @@ QList<LiteKvmController::ClipTarget> LiteKvmController::clipTargets() const
   // 2) Paired devices discovery cannot see. Live socket address wins over trust.json.
   if (m_trust) {
     for (const auto &entry : m_trust->entries()) {
-      if (seen.contains(entry.deviceId))
+      if (seen.contains(entry.deviceId) || (!selfId.isEmpty() && entry.deviceId == selfId))
         continue;
       const QString host = routeHost(entry.deviceId, entry.name, QString(), entry.lastAddr);
-      if (host.isEmpty())
+      if (host.isEmpty() || litekvm::hostIsThisMachine(host))
         continue;
       const bool live = litekvm::liveHostApplies(
           {m_livePeerHost, m_livePeerName, entry.deviceId, entry.name, paired, {}, entry.lastAddr}
       );
-      targets.append(ClipTarget{entry.deviceId, entry.name, entry.platform, host, clipFilePort(), live});
+      const QString label = live ? litekvm::clipPeerLabel(entry.name, m_livePeerName, selfName) : entry.name;
+      targets.append(ClipTarget{entry.deviceId, label, entry.platform, host, clipFilePort(), live});
       seen.insert(entry.deviceId);
     }
   }
@@ -363,11 +402,24 @@ std::optional<LiteKvmController::ClipTarget> LiteKvmController::findTarget(const
 
 void LiteKvmController::sendFilesToPeer(const QString &deviceId, const QStringList &paths, const QString &intent)
 {
-  if (!m_clipFile || !m_fileClipboardEnabled || paths.isEmpty())
+  const QString wireIntent = intent.isEmpty() ? QStringLiteral("clipboard") : intent;
+  if (!m_clipFile || !m_fileClipboardEnabled || paths.isEmpty()) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("sendFiles"), QStringLiteral("intent=%1 aborted peer-send clip=%2 enabled=%3 paths=%4")
+                                         .arg(wireIntent)
+                                         .arg(m_clipFile ? 1 : 0)
+                                         .arg(m_fileClipboardEnabled ? 1 : 0)
+                                         .arg(paths.size())
+    );
     return;
+  }
 
   const auto target = findTarget(deviceId);
   if (!target || target->host.isEmpty()) {
+    litekvm::ClipboardFileBridge::traceStage(
+        QStringLiteral("sendFiles"),
+        QStringLiteral("intent=%1 aborted target-missing device=%2").arg(wireIntent, deviceId)
+    );
     Q_EMIT fileClipboardError(tr("找不到已配对的对端「%1」，无法发送文件。").arg(deviceId));
     return;
   }

@@ -2,18 +2,23 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Tests for litekvm-pro features: AutoStart, AutoConnect, RoleNegotiation.
 #include "../../lib/arch/LowLatencySocket.h"
+#include "../../lib/deskflow/JumpZoneMouse.h"
 #include "../../lib/deskflow/MouseMotionCoalescer.h"
 #include "../../lib/litekvm/AutoConnect.h"
 #include "../../lib/litekvm/AutoStart.h"
 #include "../../lib/litekvm/ClipRoute.h"
 #include "../../lib/litekvm/DiscoveryService.h"
 #include "../../lib/litekvm/DragEdgeGate.h"
+#include "../../lib/litekvm/DragLandGate.h"
+#include "../../lib/litekvm/DropFileLand.h"
 #include "../../lib/litekvm/ElevatedCore.h"
 #include "../../lib/litekvm/LanNic.h"
 #include "../../lib/litekvm/MdnsAdvertiser.h"
+#include "../../lib/litekvm/RemoteDragDrop.h"
 #include "../../lib/litekvm/RoleNegotiation.h"
 #include "../../lib/litekvm/TrustStore.h"
 
+#include <QFile>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -201,10 +206,12 @@ private Q_SLOTS:
     QVERIFY(MdnsAdvertiser::kAnnounceIntervalMs <= 5000);
   }
 
-  void mouseAppliesNowUnlessMoreInputIsBuffered()
+  void mouseAppliesNowEvenWhenMoreInputIsBuffered()
   {
+    // A continuous move keeps the next packet already readable. Waiting for a
+    // gap freezes the pointer until the hand pauses.
     QVERIFY(shouldApplyMouseNow(false));
-    QVERIFY(!shouldApplyMouseNow(true));
+    QVERIFY(shouldApplyMouseNow(true));
   }
 
   void dragEnterStartsTransferAndLeaveDoesNotCancel()
@@ -214,11 +221,84 @@ private Q_SLOTS:
     QVERIFY(gate.onEnter(files, 1000));
     gate.onLeave();
     QVERIFY(gate.transferStarted());
-    // Same drag flickering back onto the strip must not send a second copy.
+    QVERIFY(gate.latched());
+    // A bounce back onto the strip must not send a second copy, even long
+    // after the old time debounce would have expired.
     QVERIFY(!gate.onEnter(files, 1200));
-    // A later, different drag does.
+    QVERIFY(!gate.onEnter(files, 1000 + 5000));
+    // A different drag while the button is still down does start.
     QVERIFY(gate.onEnter({QStringLiteral("C:/b.txt")}, 1200));
-    QVERIFY(gate.onEnter(files, 1000 + DragEdgeGate::kDebounceMs));
+    gate.onButtonReleased();
+    QVERIFY(!gate.latched());
+    QVERIFY(gate.onEnter(files, 1300));
+    gate.abandon();
+    QVERIFY(!gate.latched());
+    QVERIFY(gate.onEnter(files, 1400));
+  }
+
+  void edgeStripStaysHiddenUntilTheDragMoves()
+  {
+    EdgeStripArm arm;
+    QVERIFY(!arm.shouldShow(true, 0, true));
+    arm.setButtonDown(true, 100, 100, 1000);
+    QVERIFY(!arm.moved());
+    QVERIFY(!arm.shouldShow(true, 1000, true));
+    arm.setButtonDown(true, 104, 100, 1010);
+    QVERIFY(!arm.moved());
+    arm.setButtonDown(true, 100 + EdgeStripArm::kThresholdPx, 100, 1020);
+    QVERIFY(arm.moved());
+    QVERIFY(!arm.shouldShow(false, 1020, true));
+    QVERIFY(arm.shouldShow(true, 1020, false));
+    // No hook: a pointer that is already on the edge when first sampled
+    // still arms after the hold, which is inside the screen-switch grace.
+    EdgeStripArm held;
+    held.setButtonDown(true, 0, 400, 0);
+    QVERIFY(!held.shouldShow(true, EdgeStripArm::kHoldMs - 1, true));
+    QVERIFY(held.shouldShow(true, EdgeStripArm::kHoldMs, true));
+    QVERIFY(!held.shouldShow(true, EdgeStripArm::kHoldMs, false));
+    arm.setButtonDown(false, 200, 200, 1100);
+    QVERIFY(!arm.buttonDown());
+    QVERIFY(!arm.shouldShow(true, 1100, true));
+
+    QVERIFY(EdgeStripArm::nearEdge(0, 400, 0, 0, 1920, 1080, EdgeStripArm::kNearEdgePx));
+    QVERIFY(EdgeStripArm::nearEdge(960, 10, 0, 0, 1920, 1080, EdgeStripArm::kNearEdgePx));
+    QVERIFY(!EdgeStripArm::nearEdge(960, 400, 0, 0, 1920, 1080, EdgeStripArm::kNearEdgePx));
+
+    // Movement between the button-up sample and the first button-down sample
+    // is a drag. No low-level hook is required to see it.
+    EdgeStripArm flick;
+    flick.setButtonDown(false, 400, 400, 0);
+    flick.setButtonDown(true, 400 + EdgeStripArm::kThresholdPx, 400, 16);
+    QVERIFY(flick.moved());
+    QVERIFY(flick.shouldShow(true, 16, false));
+  }
+
+  void remoteDragCopiesOnReleaseWithoutBlocking()
+  {
+    RemoteDragWait wait;
+    QCOMPARE(wait.tick(false, 0), RemoteDragWait::Decision::KeepWaiting);
+    QCOMPARE(wait.tick(false, RemoteDragWait::kAppearMs - 1), RemoteDragWait::Decision::KeepWaiting);
+    QCOMPARE(wait.tick(false, RemoteDragWait::kAppearMs), RemoteDragWait::Decision::CopyAlreadyUp);
+    QCOMPARE(
+        QLatin1String(RemoteDragWait::reason(RemoteDragWait::Decision::CopyAlreadyUp)), QLatin1String("already-up")
+    );
+
+    wait.reset();
+    QCOMPARE(wait.tick(true, 10), RemoteDragWait::Decision::KeepWaiting);
+    QVERIFY(wait.sawButton());
+    QCOMPARE(wait.tick(true, RemoteDragWait::kAppearMs + 50), RemoteDragWait::Decision::KeepWaiting);
+    QCOMPARE(wait.tick(false, 800), RemoteDragWait::Decision::CopyOnRelease);
+    QCOMPARE(QLatin1String(RemoteDragWait::reason(RemoteDragWait::Decision::CopyOnRelease)), QLatin1String("release"));
+
+    wait.reset();
+    QCOMPARE(wait.tick(true, RemoteDragWait::kGiveUpMs), RemoteDragWait::Decision::CopyTimeout);
+
+    RemoteDropLatch latch;
+    const QStringList file{QStringLiteral("C:/a.txt")};
+    QVERIFY(latch.accept(file, 1000));
+    QVERIFY(!latch.accept(file, 1000 + RemoteDropLatch::kDuplicateMs - 1));
+    QVERIFY(latch.accept({QStringLiteral("C:/b.txt")}, 1001));
+    QVERIFY(latch.accept(file, 1000 + RemoteDropLatch::kDuplicateMs));
   }
 
   void mouseMotionCoalescerKeepsLatestAndSums()
@@ -274,6 +354,33 @@ private Q_SLOTS:
       names.append(nic.humanName);
     QCOMPARE(names.join(QLatin1Char(',')), QStringLiteral("以太网,Wi-Fi"));
     QVERIFY(isVirtualAdapterName(QStringLiteral("Hyper-V Virtual Ethernet Adapter"), QStringLiteral("vEthernet")));
+  }
+
+  void clipPeerLabelPrefersConnectedScreenOverPlaceholder()
+  {
+    QCOMPARE(
+        clipPeerLabel(
+            QStringLiteral("this-device"), QStringLiteral("LAPTOP-8BPR9V7N"), QStringLiteral("DESKTOP-9GM1608")
+        ),
+        QStringLiteral("LAPTOP-8BPR9V7N")
+    );
+    QCOMPARE(
+        clipPeerLabel(QStringLiteral("this-device"), QStringLiteral("server"), QStringLiteral("DESKTOP-9GM1608")),
+        QStringLiteral("this-device")
+    );
+    QCOMPARE(
+        clipPeerLabel(
+            QStringLiteral("this-device"), QStringLiteral("DESKTOP-9GM1608"), QStringLiteral("LAPTOP-8BPR9V7N")
+        ),
+        QStringLiteral("DESKTOP-9GM1608")
+    );
+    QCOMPARE(
+        clipPeerLabel(QStringLiteral("real-laptop"), QStringLiteral("server"), QStringLiteral("DESKTOP-9GM1608")),
+        QStringLiteral("real-laptop")
+    );
+    QVERIFY(isPlaceholderPeerName(QStringLiteral("this-device")));
+    QVERIFY(hostIsThisMachine(QStringLiteral("127.0.0.1")));
+    QVERIFY(!hostIsThisMachine(QString()));
   }
 
   void clipSendPrefersLiveSocketOverStaleTrust()
@@ -369,6 +476,152 @@ private Q_SLOTS:
     // ...and coming back online is a no-op
     rn.setOnline(QStringLiteral("0000-small-id"));
     QCOMPARE(changed.available(), 1); // no additional change
+  }
+
+  void jumpZoneHookLeavesDragMovesForOle()
+  {
+    QVERIFY(!eatJumpZoneMouseMove(false, false, false));
+    QVERIFY(!eatJumpZoneMouseMove(true, true, false));
+    QVERIFY(eatJumpZoneMouseMove(true, false, false));
+    // Held button: the 1px edge move must reach the edge strip.
+    QVERIFY(!eatJumpZoneMouseMove(true, false, true));
+    QVERIFY(!eatJumpZoneMouseMove(true, true, true));
+  }
+
+  void dragEdgeGraceHoldsThenAllowsTheCross()
+  {
+    DragEdgeGrace grace;
+    QVERIFY(!grace.allowSwitch(0.0));
+    QVERIFY(grace.armed());
+    QVERIFY(!grace.allowSwitch(0.2));
+    QVERIFY(grace.allowSwitch(DragEdgeGrace::kSeconds));
+    grace.reset();
+    QVERIFY(!grace.armed());
+    QVERIFY(!grace.allowSwitch(10.0));
+
+    int32_t x = 0;
+    int32_t y = 400;
+    insetFromScreenEdge(0, 0, 1920, 1080, kDragLandingMargin, x, y);
+    QCOMPARE(x, kDragLandingMargin);
+    QCOMPARE(y, 400);
+    x = 1919;
+    y = 0;
+    insetFromScreenEdge(0, 0, 1920, 1080, kDragLandingMargin, x, y);
+    QCOMPARE(x, 1920 - 1 - kDragLandingMargin);
+    QCOMPARE(y, kDragLandingMargin);
+
+    x = 0;
+    y = 400;
+    QVERIFY(clampInsideMargin(0, 0, 1920, 1080, kDragLandingMargin, x, y));
+    QCOMPARE(x, kDragLandingMargin);
+    QCOMPARE(y, 400);
+    x = 960;
+    y = 540;
+    QVERIFY(!clampInsideMargin(0, 0, 1920, 1080, kDragLandingMargin, x, y));
+    QCOMPARE(x, 960);
+    QCOMPARE(y, 540);
+
+    // The host's right edge must name the laptop, never the host. A resolved
+    // neighbor of the active screen is the self-switch that warped to x=1918.
+    QVERIFY(switchesToOtherScreen("DESKTOP-9GM1608", "LAPTOP-8BPR9V7N"));
+    QVERIFY(!switchesToOtherScreen("DESKTOP-9GM1608", "DESKTOP-9GM1608"));
+    QVERIFY(!switchesToOtherScreen("DESKTOP-9GM1608", "desktop-9gm1608"));
+    QVERIFY(!switchesToOtherScreen("DESKTOP-9GM1608", nullptr));
+    QVERIFY(!switchesToOtherScreen("DESKTOP-9GM1608", ""));
+
+    // A fast cross lands at x=8, inside the 1 px inset and still in the edge
+    // strip. The held button then bounces. The margin band has to move it.
+    x = 8;
+    y = 675;
+    QVERIFY(clampInsideMargin(0, 0, 1920, 1080, kDragLandingMargin, x, y));
+    QCOMPARE(x, kDragLandingMargin);
+    QCOMPARE(y, 675);
+    x = 1918;
+    y = 400;
+    QVERIFY(clampInsideMargin(0, 0, 1920, 1080, kDragLandingMargin, x, y));
+    QCOMPARE(x, 1920 - 1 - kDragLandingMargin);
+
+    QVERIFY(isCenterWarpEcho(-959, 0, 1920, 1080));
+    QVERIFY(isCenterWarpEcho(900, 1, 1920, 1080));
+    QVERIFY(!isCenterWarpEcho(-12, 4, 1920, 1080));
+    QVERIFY(!isCenterWarpEcho(40, -80, 1920, 1080));
+
+    QVERIFY(!resetDragEdgeHold(true, true));
+    QVERIFY(resetDragEdgeHold(true, false));
+    QVERIFY(resetDragEdgeHold(false, true));
+    QVERIFY(pointerInEdgeBand(8, 675, 0, 0, 1920, 1080, kDragLandingMargin));
+    QVERIFY(!pointerInEdgeBand(960, 540, 0, 0, 1920, 1080, kDragLandingMargin));
+  }
+
+  void landedFileIsClosedAndAFailedCopyLeavesNothing()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString source = dir.filePath(QStringLiteral("photo.jpg"));
+    QFile src(source);
+    QVERIFY(src.open(QIODevice::WriteOnly));
+    const QByteArray bytes(236, '\x42');
+    QCOMPARE(src.write(bytes), qint64(bytes.size()));
+    src.close();
+
+    const QString destDir = dir.filePath(QStringLiteral("desk"));
+    QVERIFY(QDir().mkpath(destDir));
+    const QString kept = destDir + QStringLiteral("/photo.jpg");
+    QFile existing(kept);
+    QVERIFY(existing.open(QIODevice::WriteOnly));
+    QCOMPARE(existing.write(QByteArrayLiteral("keep")), qint64(4));
+    existing.close();
+
+    const LandedFile mismatch = landFinishedFile(source, destDir, 1);
+    QVERIFY(!mismatch.ok);
+    QCOMPARE(QFileInfo(kept).size(), qint64(4));
+
+    const LandedFile part = landFinishedFile(source + QStringLiteral(".litekvm-part"), destDir, bytes.size());
+    QVERIFY(!part.ok);
+
+    const LandedFile missing = landFinishedFile(source, dir.filePath(QStringLiteral("no-such")), bytes.size());
+    QVERIFY(!missing.ok);
+
+    const LandedFile landed = landFinishedFile(source, destDir, bytes.size());
+    QVERIFY(landed.ok);
+    QVERIFY(landed.path.endsWith(QStringLiteral("photo (1).jpg")));
+    QFile out(landed.path);
+    QVERIFY(out.open(QIODevice::ReadOnly));
+    QCOMPARE(out.readAll(), bytes);
+    out.close();
+    QVERIFY(!QFile::exists(landed.path + QStringLiteral(".litekvm-part")));
+    QFile keptFile(kept);
+    QVERIFY(keptFile.open(QIODevice::ReadOnly));
+    QCOMPARE(keptFile.readAll(), QByteArray("keep"));
+    keptFile.close();
+  }
+
+  void serverHoldsADragUntilThePointerReturns()
+  {
+    DragLandGate gate;
+    QString reason;
+    const QStringList immediate = gate.receiveDrag({QStringLiteral("a.jpg")}, &reason);
+    QCOMPARE(immediate, QStringList{QStringLiteral("a.jpg")});
+    QCOMPARE(reason, QStringLiteral("pointer-local"));
+    QVERIFY(gate.waiting().isEmpty());
+
+    gate.setPointerLocal(false);
+    const QStringList held = gate.receiveDrag({QStringLiteral("b.jpg")}, &reason);
+    QVERIFY(held.isEmpty());
+    QCOMPARE(reason, QStringLiteral("deferred-pointer-remote"));
+    QCOMPARE(gate.waiting(), QStringList{QStringLiteral("b.jpg")});
+    // A later outbound send must not throw the waiting payload away.
+    QCOMPARE(gate.takeIfPointerLocal(&reason), QStringList());
+    QCOMPARE(reason, QStringLiteral("still-remote"));
+    QCOMPARE(gate.waiting(), QStringList{QStringLiteral("b.jpg")});
+
+    gate.setPointerLocal(true);
+    const QStringList landed = gate.takeIfPointerLocal(&reason);
+    QCOMPARE(landed, QStringList{QStringLiteral("b.jpg")});
+    QCOMPARE(reason, QStringLiteral("pointer-arrived"));
+    QVERIFY(gate.waiting().isEmpty());
+    QCOMPARE(gate.takeIfPointerLocal(&reason), QStringList());
+    QCOMPARE(reason, QStringLiteral("nothing-waiting"));
   }
 
   void roleFailsOverAfterHysteresis()

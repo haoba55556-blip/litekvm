@@ -8,6 +8,7 @@
 #include "platform/MSWindowsHook.h"
 #include "base/DirectionTypes.h"
 #include "base/Log.h"
+#include "deskflow/JumpZoneMouse.h"
 #include "deskflow/ScreenException.h"
 
 #include <cstring>
@@ -584,8 +585,15 @@ static bool mouseHookHandler(WPARAM wParam, int32_t x, int32_t y, int32_t data)
       // relay the event
       PostThreadMessage(g_threadID, DESKFLOW_MSG_MOUSE_MOVE, x, y);
 
-      // if inside and not bogus then eat the event
-      return inside && !bogus;
+      // A held button means a drag. Do not eat the move: OLE hit-tests the
+      // edge strip from this message, and eating it is why DragEnter never
+      // arrives. GetAsyncKeyState sees the physical button during DoDragDrop,
+      // which does not always deliver a matching button-down to our shadow.
+      const bool buttonDown =
+          (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0 || (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0 ||
+          (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0 || (GetAsyncKeyState(VK_XBUTTON1) & 0x8000) != 0 ||
+          (GetAsyncKeyState(VK_XBUTTON2) & 0x8000) != 0;
+      return eatJumpZoneMouseMove(inside, bogus, buttonDown);
     }
   }
 

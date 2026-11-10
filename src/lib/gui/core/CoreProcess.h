@@ -96,6 +96,8 @@ Q_SIGNALS:
   void missingKeyboardLayouts(const QString &layouts);
   /// screen name + numeric address of the live core socket's peer
   void peerSocketAddress(const QString &screenName, const QString &host);
+  /// Active deskflow screen. Empty is ignored. Equal to this computer when the pointer is here.
+  void activeScreenChanged(const QString &screenName);
 
 private Q_SLOTS:
   void onProcessFinished(int exitCode, QProcess::ExitStatus);

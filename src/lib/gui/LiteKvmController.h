@@ -75,11 +75,9 @@ public:
 
   /// 已配对的对端（在线的排在前面）；没有已配对设备时返回空列表。
   [[nodiscard]] QList<ClipTarget> clipTargets() const;
-  /// 当前是否有正在进行的传输。
-  [[nodiscard]] bool transferActive() const
-  {
-    return m_transferActive;
-  }
+  /// 当前是否有正在进行的传输。握手失败后会话已拆掉时不再算作进行中，
+  /// 否则一次自环会让后面的拖放全部 aborted transfer-active。
+  [[nodiscard]] bool transferActive() const;
   [[nodiscard]] bool transferOutgoing() const
   {
     return m_transferOutgoing;
@@ -95,6 +93,8 @@ public Q_SLOTS:
   void sendFilesToPeer(
       const QString &deviceId, const QStringList &paths, const QString &intent = QStringLiteral("clipboard")
   );
+  /// Drop a file session that never started moving bytes.
+  void dropIdleFileSession();
   /// 接受对端发来的 offer（收到 fileOfferReceived 之后调用）。
   void acceptIncomingFiles();
   /// 拒绝对端发来的 offer。

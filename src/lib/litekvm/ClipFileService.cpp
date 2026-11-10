@@ -7,10 +7,14 @@
 // status of the handshake (device_id + TrustStore only, channel not encrypted).
 #include "ClipFileService.h"
 
+#include "ClipRoute.h"
+#include "ClipboardFileBridge.h"
 #include "PairingService.h" // PairingService::platformString()
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonParseError>
@@ -179,18 +183,52 @@ quint16 ClipFileService::serverPort() const
   return m_server.serverPort();
 }
 
+void ClipFileService::dropIdleSession()
+{
+  if (m_transfer && m_transfer->isActive())
+    return;
+  // The offer has not been written yet. Closing this socket is how a second
+  // drag erased the first one before CLIP_OFFER.
+  if (m_pumpingHandshake || (!m_pendingPaths.isEmpty() && m_socket != nullptr && !m_helloDone))
+    return;
+  if (m_socket || m_transfer)
+    closeSession();
+}
+
 void ClipFileService::sendFilesTo(const QString &host, quint16 port, const QStringList &paths, const QString &intent)
 {
+  const QString wireIntent = intent.isEmpty() ? QStringLiteral("clipboard") : intent;
+  if (m_pumpingHandshake) {
+    ClipboardFileBridge::traceStage(
+        QStringLiteral("CLIP_OFFER"),
+        QStringLiteral("intent=%1 skipped handshake-in-progress paths=%2").arg(wireIntent).arg(paths.size())
+    );
+    return;
+  }
   if (paths.isEmpty()) {
+    ClipboardFileBridge::traceStage(
+        QStringLiteral("CLIP_OFFER"), QStringLiteral("intent=%1 skipped no-paths-at-connect").arg(wireIntent)
+    );
     reportError(Error::Protocol, QStringLiteral("sendFilesTo(): no paths given"));
     return;
   }
   // Listening is fine — the same service can reply to an incoming offer while
   // initiating an outgoing one (they use separate sockets, and the
   // m_socket/m_transfer guard above already limits concurrency).
-  if (m_socket || m_transfer) {
+  if (m_transfer && m_transfer->isActive()) {
+    ClipboardFileBridge::traceStage(
+        QStringLiteral("CLIP_OFFER"), QStringLiteral("intent=%1 skipped session-busy").arg(intent)
+    );
     reportError(Error::Busy, QStringLiteral("a session is already live (one transfer at a time)"));
     return;
+  }
+  // A handshake that never finished (the GUI thread was inside a drag) keeps
+  // the socket and every later drag logs "sending" without a CLIP_OFFER.
+  if (m_socket || m_transfer) {
+    ClipboardFileBridge::traceStage(
+        QStringLiteral("CLIP_OFFER"), QStringLiteral("intent=%1 dropped idle session").arg(intent)
+    );
+    closeSession();
   }
 
   m_pendingPaths = paths;
@@ -216,7 +254,41 @@ void ClipFileService::sendFilesTo(const QString &host, quint16 port, const QStri
     closeSession();
   });
 
+  ClipboardFileBridge::traceStage(
+      QStringLiteral("CLIP_OFFER"), QStringLiteral("intent=%1 connecting host=%2 port=%3 paths=%4 listening=%5")
+                                        .arg(m_pendingIntent, host)
+                                        .arg(port)
+                                        .arg(paths.size())
+                                        .arg(m_server.isListening() ? 1 : 0)
+  );
+  // A file drag runs inside the shell's modal loop. That loop delivered the
+  // "sending" timer but not this socket, so the offer was never written and
+  // the handshake timer never logged. Pump until the hello finishes.
+  // Set the flag before connectToHost: the connected signal can run inline.
+  m_pumpingHandshake = true;
   socket->connectToHost(host, port);
+  QElapsedTimer clock;
+  clock.start();
+  while (m_socket == socket && !m_helloDone && clock.elapsed() < m_handshakeTimeoutMs) {
+    if (QCoreApplication::instance() == nullptr)
+      break;
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);
+  }
+  m_pumpingHandshake = false;
+  if (m_socket == socket && !m_helloDone) {
+    ClipboardFileBridge::traceStage(
+        QStringLiteral("CLIP_OFFER"), QStringLiteral("intent=%1 handshake-gave-up host=%2 state=%3")
+                                          .arg(m_pendingIntent, host)
+                                          .arg(int(socket->state()))
+    );
+    const bool connected = socket->state() == QAbstractSocket::ConnectedState;
+    reportError(
+        connected ? Error::HandshakeTimeout : Error::Socket,
+        connected ? QStringLiteral("handshake did not finish with %1").arg(host)
+                  : QStringLiteral("peer did not connect within %1 ms").arg(m_handshakeTimeoutMs)
+    );
+    closeSession();
+  }
 }
 
 // ------------------------------------------------------------- settings
@@ -296,6 +368,11 @@ QString ClipFileService::peerName() const
 bool ClipFileService::isBusy() const
 {
   return m_transfer && m_transfer->isActive();
+}
+
+bool ClipFileService::hasSession() const
+{
+  return m_socket != nullptr || m_transfer != nullptr;
 }
 
 ClipFileTransfer *ClipFileService::transfer() const
@@ -576,6 +653,12 @@ void ClipFileService::notePeerSeen(const QString &deviceId, const QHostAddress &
     updated.lastSeen = QDateTime::currentDateTimeUtc();
     const QString normalized = DiscoveryService::normalizeHost(address.toString());
     updated.lastAddr = normalized.isEmpty() ? address.toString() : normalized;
+    // Pairing stored the peer as "this-device". The handshake name is the
+    // other computer; keep it so the next drag does not offer to this machine.
+    if (isPlaceholderPeerName(updated.name) && !isPlaceholderPeerName(m_peerName) &&
+        m_peerName.compare(m_self.name(), Qt::CaseInsensitive) != 0) {
+      updated.name = m_peerName;
+    }
     m_trust.upsert(updated);
   }
 }
@@ -625,12 +708,27 @@ void ClipFileService::startTransfer()
 
   forwardTransferSignals(transfer);
 
-  if (m_role == Role::Client && !m_pendingPaths.isEmpty()) {
-    const QStringList paths = m_pendingPaths;
-    m_pendingPaths.clear();
-    transfer->setOutgoingIntent(m_pendingIntent);
-    transfer->sendLocalPaths(paths);
+  if (m_pendingPaths.isEmpty()) {
+    if (m_role == Role::Client) {
+      ClipboardFileBridge::traceStage(
+          QStringLiteral("CLIP_OFFER"), QStringLiteral("skipped no-pending-paths role=%1").arg(toString(m_role))
+      );
+    }
+    return;
   }
+  if (m_role != Role::Client) {
+    // Listening left the role as Server. The paths were staged by sendFilesTo,
+    // so this socket is still the sender.
+    ClipboardFileBridge::traceStage(
+        QStringLiteral("CLIP_OFFER"), QStringLiteral("intent=%1 role=%2 sending-anyway paths=%3")
+                                          .arg(m_pendingIntent, toString(m_role))
+                                          .arg(m_pendingPaths.size())
+    );
+  }
+  const QStringList paths = m_pendingPaths;
+  m_pendingPaths.clear();
+  transfer->setOutgoingIntent(m_pendingIntent);
+  transfer->sendLocalPaths(paths);
 }
 
 void ClipFileService::forwardTransferSignals(ClipFileTransfer *transfer)
@@ -710,7 +808,9 @@ void ClipFileService::closeSession()
 
 void ClipFileService::reportError(Error error, const QString &detail)
 {
-  Q_EMIT errorOccurred(QStringLiteral("%1: %2").arg(toString(error), detail));
+  const QString message = QStringLiteral("%1: %2").arg(toString(error), detail);
+  ClipboardFileBridge::traceStage(QStringLiteral("clip-error"), message);
+  Q_EMIT errorOccurred(message);
 }
 
 } // namespace litekvm
