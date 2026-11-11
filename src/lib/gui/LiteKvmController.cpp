@@ -11,9 +11,45 @@
 #include "litekvm/ClipboardFileBridge.h"
 #include "litekvm/MdnsAdvertiser.h"
 
+#include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
+#include <QEvent>
 #include <QFileInfo>
+#include <QSemaphore>
+#include <QThread>
+#include <QTimer>
+
+namespace {
+
+// 25903 lives here, not on the Qt GUI thread. Explorer's modal drag loop
+// dispatches some posted events but starves QTcpSocket notifiers, so
+// readyRead / bytesWritten / ClipFileTransfer::pump() run in this thread.
+class ClipFileThread : public QThread
+{
+public:
+  litekvm::ClipFileService *service = nullptr;
+  QSemaphore ready;
+
+protected:
+  void run() override
+  {
+    QObject ping;
+    // Fire only after exec() is pumping, so the GUI's BlockingQueued calls
+    // cannot arrive before the loop exists.
+    QTimer::singleShot(0, &ping, [this] {
+      litekvm::ClipboardFileBridge::traceStage(
+          QStringLiteral("clip-io"), QStringLiteral("25903 io thread=%1").arg(QThread::currentThread()->objectName())
+      );
+      ready.release();
+    });
+    exec();
+    delete service;
+    service = nullptr;
+  }
+};
+
+} // namespace
 
 namespace deskflow::gui {
 
@@ -152,10 +188,42 @@ quint16 LiteKvmController::clipFilePort()
 // 刻意不打开 ClipFileService::setAutoAccept()：接不接受由 GUI 决定（先建好进度窗口
 // 再 acceptOffer()），而且 ClipFileTransfer::handleOffer() 是在 emit offerReceived()
 // 之后才看 autoAccept 的，两边都开会变成重复 accept。
+LiteKvmController::~LiteKvmController()
+{
+  if (!m_clipThread || !m_clipFile)
+    return;
+  // Drop queued GUI slots before stop() emits. The service is deleted on the
+  // worker after exec() returns; the GUI must not touch it again.
+  QObject::disconnect(m_clipFile, nullptr, this, nullptr);
+  if (m_clipThread->isRunning()) {
+    QMetaObject::invokeMethod(
+        m_clipFile,
+        [svc = m_clipFile] {
+          svc->stop();
+          QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        },
+        Qt::BlockingQueuedConnection
+    );
+    m_clipThread->quit();
+    m_clipThread->wait();
+  }
+  m_clipFile = nullptr;
+}
+
 void LiteKvmController::setupFileClipboard()
 {
-  m_clipFile = new litekvm::ClipFileService(*m_identity, *m_trust, this);
+  // No parent: moveToThread() refuses an object that has one. The worker
+  // deletes the service after its event loop stops.
+  m_clipFile = new litekvm::ClipFileService(*m_identity, *m_trust, nullptr);
   m_clipBridge = new litekvm::ClipboardFileBridge(this);
+
+  auto *ioThread = new ClipFileThread(this);
+  ioThread->setObjectName(QStringLiteral("clip-file-25903"));
+  ioThread->service = m_clipFile;
+  m_clipThread = ioThread;
+  m_clipFile->moveToThread(ioThread);
+  ioThread->start();
+  ioThread->ready.acquire();
 
   // ---- ClipFileService -> UI ----
   connect(m_clipFile, &litekvm::ClipFileService::offerReceived, this, [this](const litekvm::ClipFileOffer &offer) {
@@ -243,7 +311,7 @@ void LiteKvmController::setupFileClipboard()
     // A busy error must not clear the flag while the other transfer is still
     // the live session — the next drag would log "sending" and then drop the
     // CLIP_OFFER because the socket is still held.
-    const bool live = m_clipFile && m_clipFile->transfer() && m_clipFile->transfer()->isActive();
+    const bool live = m_clipFile && m_clipFile->isBusy();
     if (!live)
       m_transferActive = false;
     Q_EMIT fileClipboardError(message);
@@ -313,7 +381,7 @@ void LiteKvmController::applyFileClipboardSettings()
 
 bool LiteKvmController::transferActive() const
 {
-  return m_clipFile && m_clipFile->transfer() && m_clipFile->transfer()->isActive();
+  return m_clipFile && m_clipFile->isBusy();
 }
 
 void LiteKvmController::dropIdleFileSession()
@@ -353,7 +421,7 @@ QList<LiteKvmController::ClipTarget> LiteKvmController::clipTargets() const
         continue;
       QString trusted;
       if (m_trust) {
-        if (const auto *entry = m_trust->find(peer.deviceId))
+        if (const auto entry = m_trust->find(peer.deviceId))
           trusted = entry->lastAddr;
       }
       if (!selfId.isEmpty() && peer.deviceId == selfId)

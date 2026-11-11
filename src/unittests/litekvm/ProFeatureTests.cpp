@@ -298,6 +298,20 @@ private Q_SLOTS:
     wait.reset();
     QCOMPARE(wait.tick(true, RemoteDragWait::kGiveUpMs), RemoteDragWait::Decision::CopyTimeout);
 
+    // pointer-local + already-up does not burn kAppearMs. A held button still
+    // waits for release. Clearing the skip restores the cross grace.
+    RemoteDragWait local;
+    local.setSkipAppearGrace(true);
+    QCOMPARE(local.tick(false, 0), RemoteDragWait::Decision::CopyAlreadyUp);
+    local.reset();
+    QCOMPARE(local.tick(true, 0), RemoteDragWait::Decision::KeepWaiting);
+    QCOMPARE(local.tick(false, 1), RemoteDragWait::Decision::CopyOnRelease);
+    local.reset();
+    local.setSkipAppearGrace(false);
+    QCOMPARE(local.tick(false, 0), RemoteDragWait::Decision::KeepWaiting);
+    QCOMPARE(local.tick(false, RemoteDragWait::kAppearMs - 1), RemoteDragWait::Decision::KeepWaiting);
+    QCOMPARE(local.tick(false, RemoteDragWait::kAppearMs), RemoteDragWait::Decision::CopyAlreadyUp);
+
     RemoteDropLatch latch;
     const QStringList file{QStringLiteral("C:/a.txt")};
     QVERIFY(latch.accept(file, 1000));

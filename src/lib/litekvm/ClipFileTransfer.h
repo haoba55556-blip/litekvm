@@ -259,6 +259,14 @@ private:
   bool prepareDestinations();
   bool openIncomingEntry(int index, qint64 resumeFrom);
 
+  // ---- timing logs (CLIP_ACCEPT -> first byte, per-entry, total)
+  void noteAcceptForTiming(const char *role);
+  void noteEntryStarted();
+  void noteFirstPayloadByte(quint64 bytes);
+  void logRate(const char *stage, int entryIndex, quint64 bytes, qint64 elapsedMs) const;
+  qint64 entryElapsedMs() const;
+  void logTransferDone() const;
+
   // ---- frame handling
   void handleControl(const std::vector<std::uint8_t> &payload);
   void handleData(const std::vector<std::uint8_t> &payload);
@@ -310,6 +318,12 @@ private:
   TransferProgress m_progress;
   QElapsedTimer m_elapsed;
   qint64 m_lastProgressMs = -1000; // force the first progressChanged
+  // CLIP_ACCEPT -> first payload byte, then per-entry CLIP_COMPLETE / CLIP_DONE.
+  QString m_timingRole;
+  QElapsedTimer m_acceptToFirstByte;
+  bool m_waitingFirstByte = false;
+  QElapsedTimer m_entryClock;
+  bool m_entryClockOn = false;
 };
 
 } // namespace litekvm

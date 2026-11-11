@@ -184,7 +184,7 @@ private:
   );
   void onAutoSessionRequested(const litekvm::DiscoveredPeer &peer);
   void onEdgeFilesDragged(const QStringList &paths);
-  void startRemoteDrag(const QStringList &paths);
+  void startRemoteDrag(const QStringList &paths, bool skipAppearGrace = false);
   void onActiveScreen(const QString &screen);
   void pollRemoteDrag();
   void finishRemoteDrag(const char *reason);

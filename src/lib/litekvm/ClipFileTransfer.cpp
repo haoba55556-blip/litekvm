@@ -29,6 +29,14 @@ namespace {
 constexpr int kProgressThrottleMs = 50;
 constexpr int kMinHighWaterMark = 64 * 1024;
 
+qint64 bytesPerSecond(quint64 bytes, qint64 elapsedMs)
+{
+  if (elapsedMs <= 0)
+    return 0;
+  // bytes * 1000 fits for any transfer this channel accepts (cap is 1 TiB/file).
+  return qint64((bytes * 1000ull) / quint64(elapsedMs));
+}
+
 /// Bytes open() will read. QFileInfo::size() follows a Windows shortcut.
 bool readableFileSize(const QString &path, qint64 *size, QString *error)
 {
@@ -288,6 +296,9 @@ void ClipFileTransfer::resetForNewTransfer()
   m_lastError = Error::None;
   m_progress = TransferProgress{};
   m_lastProgressMs = -1000;
+  m_timingRole.clear();
+  m_waitingFirstByte = false;
+  m_entryClockOn = false;
 }
 
 void ClipFileTransfer::cleanupPartial(bool removePartFile)
@@ -592,8 +603,10 @@ bool ClipFileTransfer::openOutgoingEntry(int index, qint64 resumeFrom)
   }
 
   m_entryOpen = true;
-  if (entry.isDirectory)
+  if (entry.isDirectory) {
+    noteEntryStarted();
     return true;
+  }
 
   const QString localPath = m_entryLocalPaths.value(index);
   m_inFile.reset(new QFile(localPath));
@@ -613,6 +626,7 @@ bool ClipFileTransfer::openOutgoingEntry(int index, qint64 resumeFrom)
       return false;
     }
   }
+  noteEntryStarted();
   return true;
 }
 
@@ -631,8 +645,13 @@ bool ClipFileTransfer::finishOutgoingEntry()
   msg.insert(QStringLiteral("sha1"), toQString(m_fileHasher.hex()));
   sendJson(msg);
 
-  if (m_state != State::Failed)
+  if (m_state != State::Failed) {
+    const quint64 bytes = entry.size > 0 ? quint64(entry.size) : 0;
+    // An empty file never writes a data frame; the complete line is the first byte.
+    noteFirstPayloadByte(bytes);
+    logRate("CLIP_COMPLETE", m_entryIndex, bytes, entryElapsedMs());
     m_state = State::AwaitingAck;
+  }
   return m_state != State::Failed;
 }
 
@@ -699,6 +718,7 @@ void ClipFileTransfer::pump()
 
     m_fileHasher.update(buffer.constData(), std::size_t(buffer.size()));
     m_channel->write(toQByteArray(frame));
+    noteFirstPayloadByte(std::uint64_t(buffer.size()));
 
     m_entryOffset += std::uint64_t(buffer.size());
     m_entryBytesDone += std::uint64_t(buffer.size());
@@ -784,8 +804,10 @@ bool ClipFileTransfer::openIncomingEntry(int index, qint64 resumeFrom)
   }
 
   m_entryOpen = true;
-  if (entry.isDirectory)
+  if (entry.isDirectory) {
+    noteEntryStarted();
     return true;
+  }
 
   const DestPath dest = m_destPaths.value(index);
   m_outFile.reset(new QFile(dest.partPath));
@@ -811,6 +833,7 @@ bool ClipFileTransfer::openIncomingEntry(int index, qint64 resumeFrom)
     m_entryOffset = std::uint64_t(keep);
     m_entryBytesDone = std::uint64_t(keep);
   }
+  noteEntryStarted();
   return true;
 }
 
@@ -844,6 +867,7 @@ void ClipFileTransfer::acceptOffer(qint64 resumeFrom)
   reply.insert(QStringLiteral("resume_from"), double(resumeFrom));
   m_state = State::Receiving;
   sendJson(reply);
+  noteAcceptForTiming("recv");
 }
 
 // ------------------------------------------------------------------ cancel
@@ -1040,6 +1064,7 @@ void ClipFileTransfer::handleAccept(const QJsonObject &msg)
   m_bytesDone = m_resumeFrom > 0 ? std::uint64_t(m_resumeFrom) : 0;
   m_elapsed.restart();
   m_lastProgressMs = -1000;
+  noteAcceptForTiming("send");
 
   if (!openOutgoingEntry(0, m_resumeFrom))
     return;
@@ -1083,6 +1108,9 @@ void ClipFileTransfer::handleDone(const QJsonObject &msg)
     return;
   }
 
+  const quint64 bytes = m_entries.value(m_entryIndex).size > 0 ? quint64(m_entries.value(m_entryIndex).size) : 0;
+  logRate("CLIP_DONE", m_entryIndex, bytes, entryElapsedMs());
+
   const QString localPath = m_entryLocalPaths.value(m_entryIndex);
   Q_EMIT entryCompleted(m_entryIndex, localPath);
 
@@ -1096,6 +1124,7 @@ void ClipFileTransfer::handleDone(const QJsonObject &msg)
   if (m_entryIndex >= m_entries.size()) {
     m_state = State::Completed;
     emitProgress(true);
+    logTransferDone();
     Q_EMIT transferCompleted(m_sourcePaths, m_transferId);
     return;
   }
@@ -1166,11 +1195,17 @@ void ClipFileTransfer::handleComplete(const QJsonObject &msg)
     Q_EMIT entryCompleted(m_entryIndex, dest.finalPath);
   }
 
+  const quint64 bytes = entry.size > 0 ? quint64(entry.size) : 0;
+  noteFirstPayloadByte(bytes);
+  logRate("CLIP_COMPLETE", m_entryIndex, bytes, entryElapsedMs());
+
   QJsonObject done = baseMessage(QStringLiteral("CLIP_DONE"), m_transferId);
   done.insert(QStringLiteral("entry_index"), m_entryIndex);
   done.insert(QStringLiteral("sha1"), peerSha1);
   done.insert(QStringLiteral("ok"), true);
   sendJson(done);
+  if (m_state != State::Failed)
+    logRate("CLIP_DONE", m_entryIndex, bytes, entryElapsedMs());
 
   m_entryIndex += 1;
   m_entryOpen = false;
@@ -1181,6 +1216,7 @@ void ClipFileTransfer::handleComplete(const QJsonObject &msg)
   if (m_entryIndex >= m_entries.size()) {
     m_state = State::Completed;
     emitProgress(true);
+    logTransferDone();
     Q_EMIT transferCompleted(m_completedPaths, m_transferId);
     return;
   }
@@ -1237,6 +1273,7 @@ void ClipFileTransfer::handleData(const std::vector<std::uint8_t> &payload)
   }
 
   m_fileHasher.update(data, dataLen);
+  noteFirstPayloadByte(std::uint64_t(dataLen));
   m_entryOffset += std::uint64_t(dataLen);
   m_entryBytesDone += std::uint64_t(dataLen);
   m_bytesDone += std::uint64_t(dataLen);
@@ -1271,6 +1308,57 @@ void ClipFileTransfer::handleRemoteCancel(const QJsonObject &msg)
   cleanupPartial(true);
   m_state = State::Cancelled;
   Q_EMIT transferCancelled(m_transferId);
+}
+
+void ClipFileTransfer::noteAcceptForTiming(const char *role)
+{
+  m_timingRole = QString::fromLatin1(role);
+  m_acceptToFirstByte.start();
+  m_waitingFirstByte = true;
+}
+
+void ClipFileTransfer::noteEntryStarted()
+{
+  m_entryClock.start();
+  m_entryClockOn = true;
+}
+
+qint64 ClipFileTransfer::entryElapsedMs() const
+{
+  return m_entryClockOn ? m_entryClock.elapsed() : 0;
+}
+
+void ClipFileTransfer::noteFirstPayloadByte(quint64 bytes)
+{
+  if (!m_waitingFirstByte)
+    return;
+  m_waitingFirstByte = false;
+  logRate("CLIP_ACCEPT-to-first-byte", m_entryIndex, bytes, m_acceptToFirstByte.elapsed());
+}
+
+void ClipFileTransfer::logRate(const char *stage, int entryIndex, quint64 bytes, qint64 elapsedMs) const
+{
+  ClipboardFileBridge::traceStage(
+      QString::fromLatin1(stage), QStringLiteral("role=%1 entry=%2 bytes=%3 elapsed_ms=%4 B/s=%5")
+                                      .arg(m_timingRole.isEmpty() ? QStringLiteral("-") : m_timingRole)
+                                      .arg(entryIndex)
+                                      .arg(bytes)
+                                      .arg(elapsedMs)
+                                      .arg(bytesPerSecond(bytes, elapsedMs))
+  );
+}
+
+void ClipFileTransfer::logTransferDone() const
+{
+  const qint64 elapsedMs = m_elapsed.isValid() ? m_elapsed.elapsed() : 0;
+  ClipboardFileBridge::traceStage(
+      QStringLiteral("transferCompleted"), QStringLiteral("role=%1 bytes=%2 elapsed_ms=%3 B/s=%4 entries=%5")
+                                               .arg(m_timingRole.isEmpty() ? QStringLiteral("-") : m_timingRole)
+                                               .arg(m_bytesDone)
+                                               .arg(elapsedMs)
+                                               .arg(bytesPerSecond(m_bytesDone, elapsedMs))
+                                               .arg(m_entries.size())
+  );
 }
 
 } // namespace litekvm
