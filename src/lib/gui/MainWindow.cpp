@@ -13,6 +13,7 @@
 #include "Diagnostic.h"
 #include "LiteKvmController.h"
 #include "NearbyPanel.h"
+#include "NeoHome.h"
 #include "StyleUtils.h"
 
 #include "dialogs/AboutDialog.h"
@@ -46,10 +47,12 @@
 #include <QAbstractButton>
 #include <QCheckBox>
 #include <QCloseEvent>
+#include <QColor>
 #include <QCoreApplication>
 #include <QCursor>
 #include <QDateTime>
 #include <QDesktopServices>
+#include <QDialog>
 #include <QDir>
 #include <QDirIterator>
 #include <QDrag>
@@ -58,6 +61,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLocalServer>
 #include <QLocalSocket>
@@ -66,12 +70,17 @@
 #include <QMessageBox>
 #include <QNetworkAccessManager>
 #include <QNetworkInterface>
+#include <QPalette>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QRegularExpressionValidator>
 #include <QScreen>
+#include <QScrollArea>
 #include <QScrollBar>
+#include <QShowEvent>
+#include <QSizePolicy>
 #include <QTimer>
+#include <QVBoxLayout>
 
 #include <memory>
 
@@ -124,6 +133,17 @@ MainWindow::MainWindow()
       m_networkMonitor{new NetworkMonitor(this)}
 {
   ui->setupUi(this);
+
+  // Custom chrome. The hints stay so minimize, maximize, and Alt+F4 still work
+  // without a native title bar. Set the translucent attribute before the
+  // platform window is created.
+  setAttribute(Qt::WA_TranslucentBackground);
+  setAttribute(Qt::WA_NoSystemBackground, true);
+  setAutoFillBackground(false);
+  setWindowFlags(
+      Qt::Window | Qt::FramelessWindowHint | Qt::WindowSystemMenuHint | Qt::WindowMinimizeButtonHint |
+      Qt::WindowMaximizeButtonHint | Qt::WindowCloseButtonHint | Qt::NoDropShadowWindowHint
+  );
 
   // LiteKVM zero-config panel: discovery + PIN pairing
   m_liteKvmController = new LiteKvmController(this);
@@ -223,6 +243,8 @@ MainWindow::MainWindow()
   // Route native quits (Cmd+Q / Apple menu Quit / Dock "Quit") to the usual close-to-tray decision instead.
   installQuitHandler([this] { return !maybeHideToTray(); });
 #endif
+
+  installHomeStage();
 }
 MainWindow::~MainWindow()
 {
@@ -369,6 +391,187 @@ void MainWindow::reworkPanels()
   applyFileClipboardSettings();
 }
 
+void MainWindow::installHomeStage()
+{
+  auto *topLayout = qobject_cast<QVBoxLayout *>(ui->topLevelWidget->layout());
+  if (!topLayout)
+    return;
+
+  // The old deskflow panel (name, mode, nearby computers, log) stays alive so
+  // pairing and manual connect keep working. It is no longer the main view.
+  auto *legacy = new QWidget;
+  auto *legacyLayout = new QVBoxLayout(legacy);
+  legacyLayout->setContentsMargins(12, 12, 12, 12);
+  legacyLayout->setSpacing(8);
+  while (QLayoutItem *item = topLayout->takeAt(0)) {
+    if (QWidget *widget = item->widget())
+      legacyLayout->addWidget(widget);
+    delete item;
+  }
+
+  topLayout->setContentsMargins(0, 0, 0, 0);
+  topLayout->setSpacing(0);
+  ui->topLevelWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  ui->topLevelWidget->setMinimumSize(0, 0);
+  ui->topLevelWidget->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+  ui->topLevelWidget->setAutoFillBackground(false);
+  ui->topLevelWidget->setAttribute(Qt::WA_NoSystemBackground, true);
+  setStyleSheet(QStringLiteral(
+      "QMainWindow { background: transparent; border: none; }"
+      "QWidget#topLevelWidget { background: transparent; border: none; }"
+  ));
+
+  m_home = new NeoHome(ui->topLevelWidget);
+  topLayout->addWidget(m_home);
+
+  if (QMenuBar *bar = menuBar())
+    bar->hide();
+  if (m_statusBar)
+    m_statusBar->hide();
+
+  // Shortcuts still fire after the menu bar is hidden.
+  addActions(
+      {m_actionQuit, m_actionTrayQuit, m_actionSettings, m_actionProSettings, m_actionStartCore, m_actionRestartCore,
+       m_actionStopCore, m_actionShowHelp, m_actionAbout, m_actionSendFiles, m_actionMinimize, m_actionRestore}
+  );
+
+  m_legacyDialog =
+      new QDialog(this, Qt::Dialog | Qt::WindowTitleHint | Qt::WindowCloseButtonHint | Qt::WindowSystemMenuHint);
+  m_legacyDialog->setWindowTitle(tr("设置"));
+  m_legacyDialog->setAttribute(Qt::WA_DeleteOnClose, false);
+  m_legacyDialog->setModal(false);
+  m_legacyDialog->setMinimumSize(720, 480);
+  m_legacyDialog->resize(860, 640);
+
+  auto *scroll = new QScrollArea(m_legacyDialog);
+  scroll->setWidgetResizable(true);
+  scroll->setFrameShape(QFrame::NoFrame);
+  scroll->setWidget(legacy);
+  scroll->setStyleSheet(QStringLiteral("QScrollArea { background: #0D0F12; border: none; }"));
+  if (QWidget *viewport = scroll->viewport()) {
+    viewport->setAutoFillBackground(true);
+    QPalette palette = viewport->palette();
+    palette.setColor(QPalette::Window, QColor(0x0D, 0x0F, 0x12));
+    viewport->setPalette(palette);
+  }
+
+  auto *prefs = new QPushButton(tr("偏好设置…"), m_legacyDialog);
+  auto *pro = new QPushButton(tr("Pro 设置…"), m_legacyDialog);
+  auto *about = new QPushButton(tr("关于"), m_legacyDialog);
+  auto *help = new QPushButton(tr("帮助"), m_legacyDialog);
+  connect(prefs, &QPushButton::clicked, this, &MainWindow::openSettings);
+  connect(pro, &QPushButton::clicked, this, &MainWindow::openProSettings);
+  connect(about, &QPushButton::clicked, this, &MainWindow::openAboutDialog);
+  connect(help, &QPushButton::clicked, this, &MainWindow::showHelpViewer);
+
+  auto *row = new QHBoxLayout;
+  row->setSpacing(8);
+  row->addWidget(prefs);
+  row->addWidget(pro);
+  row->addWidget(about);
+  row->addWidget(help);
+  row->addStretch();
+
+  auto *dialogLayout = new QVBoxLayout(m_legacyDialog);
+  dialogLayout->addWidget(scroll, 1);
+  dialogLayout->addLayout(row);
+
+  connect(m_home, &NeoHome::autoConnectToggled, this, &MainWindow::onHomeAutoConnectToggled);
+  connect(m_home, &NeoHome::disconnectRequested, this, &MainWindow::stopCore);
+  connect(m_home, &NeoHome::settingsRequested, this, &MainWindow::openLegacySettings);
+  connect(m_home, &NeoHome::minimizeRequested, this, &QWidget::showMinimized);
+  connect(m_home, &NeoHome::maximizeRequested, this, [this] {
+    if (isMaximized())
+      showNormal();
+    else
+      showMaximized();
+  });
+  connect(m_home, &NeoHome::closeRequested, this, &QWidget::close);
+
+  int targetW = 1280;
+  int targetH = 720;
+  int minW = 960;
+  int minH = 580;
+  if (QScreen *screen = this->screen()) {
+    const QRect avail = screen->availableGeometry().adjusted(16, 16, -16, -16);
+    targetW = qMin(targetW, qMax(640, avail.width()));
+    targetH = qMin(targetH, qMax(420, avail.height()));
+    minW = qMin(minW, targetW);
+    minH = qMin(minH, targetH);
+  }
+  if (width() < targetW || height() < targetH)
+    resize(qMax(width(), targetW), qMax(height(), targetH));
+  setMinimumSize(minW, minH);
+  if (QScreen *screen = this->screen()) {
+    const QRect avail = screen->availableGeometry();
+    if (!avail.contains(frameGeometry()))
+      move(avail.center() - rect().center());
+  }
+
+  refreshHomeStage();
+}
+
+void MainWindow::refreshHomeStage()
+{
+  if (!m_home)
+    return;
+
+  const bool autoOn = m_liteKvmController && m_liteKvmController->isAutoConnectEnabled();
+  m_home->setAutoConnectOn(autoOn);
+
+  using enum ProcessState;
+  const auto process = m_coreProcess.processState();
+  const auto connection = m_coreProcess.connectionState();
+  const bool isServer = m_coreProcess.mode() == CoreMode::Server;
+
+  bool linked = false;
+  QString label = tr("未连接");
+  if (process == Stopping) {
+    label = tr("断开中");
+  } else if (process == Starting || process == RetryPending || connection == ConnectionState::Connecting) {
+    label = tr("连接中");
+  } else if (process == Started && connection == ConnectionState::Connected) {
+    linked = true;
+    label = tr("已连接");
+  } else if (isServer && process == Started && connection == ConnectionState::Listening) {
+    if (m_connectedClientCount > 0) {
+      linked = true;
+      label = tr("已连接");
+    } else {
+      label = tr("等待连接");
+    }
+  }
+
+  m_home->setLinkStatus(linked, label);
+  const bool canStop = process == Started || process == Starting || process == RetryPending;
+  m_home->setDisconnectEnabled(canStop);
+}
+
+void MainWindow::openLegacySettings()
+{
+  if (!m_legacyDialog)
+    return;
+  m_legacyDialog->show();
+  m_legacyDialog->raise();
+  m_legacyDialog->activateWindow();
+}
+
+void MainWindow::onHomeAutoConnectToggled(bool on)
+{
+  if (on)
+    m_autoConnectHold = false;
+  if (m_liteKvmController)
+    m_liteKvmController->setAutoConnectEnabled(on);
+  else
+    Settings::setValue(QStringLiteral("litekvm/autoConnect"), on);
+
+  // Same rule as startup: a machine left in server mode has to be serving
+  // before the other side can auto-connect to it.
+  if (on && ui->rbModeServer->isChecked() && !m_coreProcess.isStarted())
+    startCore();
+  refreshHomeStage();
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // Begin slots
 //////////////////////////////////////////////////////////////////////////////
@@ -478,6 +681,9 @@ void MainWindow::toggleLogVisible(bool visible)
 
 void MainWindow::settingsChanged(const QString &key)
 {
+  if (key == QStringLiteral("litekvm/autoConnect"))
+    refreshHomeStage();
+
   if (key == Settings::Log::Level) {
     m_coreProcess.applyLogLevel();
     return;
@@ -665,6 +871,7 @@ void MainWindow::coreModeToggled(bool checked)
   Settings::save();
 
   updateModeControls();
+  refreshHomeStage();
 }
 
 void MainWindow::updateModeControls()
@@ -1099,6 +1306,7 @@ void MainWindow::updateStatus()
     ui->btnEditName->setVisible(process == Stopped);
   }
   m_statusBar->setStatus(connection, process, isServer);
+  refreshHomeStage();
 }
 
 void MainWindow::coreProcessStateChanged(ProcessState state)
@@ -1191,7 +1399,66 @@ void MainWindow::changeEvent(QEvent *e)
     updateStatus();
     serverClientsChanged({});
     updateText();
+    if (m_legacyDialog)
+      m_legacyDialog->setWindowTitle(tr("设置"));
+  } else if (e->type() == QEvent::WindowStateChange) {
+    if (m_home)
+      m_home->update();
   }
+}
+
+void MainWindow::showEvent(QShowEvent *event)
+{
+  QMainWindow::showEvent(event);
+  refreshHomeStage();
+}
+
+bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
+{
+#if defined(Q_OS_WIN)
+  if (m_home && (eventType == "windows_generic_MSG" || eventType == "windows_dispatcher_MSG")) {
+    const auto *msg = static_cast<const MSG *>(message);
+    if (msg->message == WM_NCHITTEST) {
+      const int gx = static_cast<int>(static_cast<short>(LOWORD(msg->lParam)));
+      const int gy = static_cast<int>(static_cast<short>(HIWORD(msg->lParam)));
+      switch (m_home->frameHitAt(m_home->mapFromGlobal(QPoint(gx, gy)))) {
+      case NeoHome::FrameHit::Outside:
+        *result = HTTRANSPARENT;
+        return true;
+      case NeoHome::FrameHit::Caption:
+        *result = HTCAPTION;
+        return true;
+      case NeoHome::FrameHit::Left:
+        *result = HTLEFT;
+        return true;
+      case NeoHome::FrameHit::Right:
+        *result = HTRIGHT;
+        return true;
+      case NeoHome::FrameHit::Top:
+        *result = HTTOP;
+        return true;
+      case NeoHome::FrameHit::Bottom:
+        *result = HTBOTTOM;
+        return true;
+      case NeoHome::FrameHit::TopLeft:
+        *result = HTTOPLEFT;
+        return true;
+      case NeoHome::FrameHit::TopRight:
+        *result = HTTOPRIGHT;
+        return true;
+      case NeoHome::FrameHit::BottomLeft:
+        *result = HTBOTTOMLEFT;
+        return true;
+      case NeoHome::FrameHit::BottomRight:
+        *result = HTBOTTOMRIGHT;
+        return true;
+      case NeoHome::FrameHit::Client:
+        break;
+      }
+    }
+  }
+#endif
+  return QMainWindow::nativeEvent(eventType, message, result);
 }
 
 bool MainWindow::eventFilter(QObject *obj, QEvent *event)
@@ -1367,9 +1634,14 @@ bool MainWindow::generateCertificate()
 
 void MainWindow::serverClientsChanged(const QStringList &clients)
 {
-  if (m_coreProcess.mode() != CoreMode::Server || !m_coreProcess.isStarted())
+  if (m_coreProcess.mode() != CoreMode::Server || !m_coreProcess.isStarted()) {
+    m_connectedClientCount = 0;
+    refreshHomeStage();
     return;
+  }
+  m_connectedClientCount = static_cast<int>(clients.size());
   m_statusBar->setServerClients(clients);
+  refreshHomeStage();
 }
 
 void MainWindow::daemonIpcClientConnectionFailed()

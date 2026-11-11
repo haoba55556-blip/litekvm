@@ -33,8 +33,10 @@ struct DiscoveredPeer;
 #endif
 
 class QAction;
+class QDialog;
 class QMenu;
 class QLocalServer;
+class QShowEvent;
 class QTimer;
 
 class DeskflowApplication;
@@ -51,6 +53,7 @@ class CollapsiblePanel;
 class EdgeFileDrop;
 class LiteKvmController;
 class NearbyPanel;
+class NeoHome;
 namespace ipc {
 class DaemonIpcClient;
 }
@@ -92,6 +95,8 @@ public:
 protected:
   void changeEvent(QEvent *e) override;
   bool eventFilter(QObject *obj, QEvent *event) override;
+  void showEvent(QShowEvent *event) override;
+  bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
 
 private:
   /**
@@ -144,6 +149,10 @@ private:
   void updateFingerprintButton();
   void updateScreenName();
   void reworkPanels();
+  void installHomeStage();
+  void refreshHomeStage();
+  void openLegacySettings();
+  void onHomeAutoConnectToggled(bool on);
   void saveSettings() const;
   void showConfigureServer(const QString &message);
   void showConfigureClient();
@@ -231,6 +240,9 @@ private:
   deskflow::gui::CollapsiblePanel *m_logCollapsible = nullptr;
   StatusBar *m_statusBar = nullptr;
   deskflow::gui::LiteKvmController *m_liteKvmController = nullptr;
+  deskflow::gui::NeoHome *m_home = nullptr;
+  QDialog *m_legacyDialog = nullptr;
+  int m_connectedClientCount = 0;
 
   // 跨机文件剪贴板
   deskflow::gui::ClipTransferDialog *m_clipTransferDialog = nullptr;
