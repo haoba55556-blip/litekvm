@@ -263,14 +263,11 @@ void MainWindow::restoreWindow()
 {
   const QRect saved = Settings::value(Settings::Gui::WindowGeometry).toRect();
   const auto totalGeometry = QGuiApplication::primaryScreen()->availableGeometry();
-  // Before NeoHome exists, adjustSize() only sizes the legacy panels.
-  // Afterwards the design size is applied explicitly. adjustSize() is not
-  // used then: it samples the main-window hint before activate(), so only
-  // the collapsed-log second call ever saw 854×481, and a later resize to
-  // that same size is a no-op when Qt's crect is already 854×481 while the
-  // frameless HWND is still the legacy size.
+  // gui/windowGeometry lives in the Qt state file, not LiteKVM.conf. Closing
+  // the 720-wide window writes that rect. The window is frameless, so the
+  // saved size is not a user resize. Keep the saved position only.
   if (saved.isValid())
-    setGeometry(saved);
+    move(saved.topLeft());
   else if (!m_home)
     adjustSize();
 
@@ -280,10 +277,10 @@ void MainWindow::restoreWindow()
       adjustSize();
   }
 
-  if (!saved.isValid())
-    applyHomeStageSize();
-
-  m_expandedSize = size();
+  applyHomeStageSize();
+  m_expandedSize = m_home ? clampedHomeStageSize() : size();
+  if (!m_expandedSize.isValid())
+    m_expandedSize = size();
 
   const QRect placed = geometry();
   if (!totalGeometry.contains(placed)) {
@@ -423,18 +420,48 @@ QSize MainWindow::clampedHomeStageSize() const
   return target;
 }
 
+namespace {
+
+// Win32 SetWindowPos wants physical pixels. Qt's resize() is already in the
+// same logical pixels the DPI-unaware collector reports, so callers pass
+// NeoHome's 854×481 here and must not multiply it again before resize().
+void pushFramelessWindowSize(QWidget *widget, const QSize &logical)
+{
+#if defined(Q_OS_WIN)
+  if (!widget || !logical.isValid())
+    return;
+  QWindow *handle = widget->windowHandle();
+  if (!handle)
+    return;
+  const auto hwnd = reinterpret_cast<HWND>(handle->winId());
+  if (!hwnd)
+    return;
+  // devicePixelRatioF() is dpi/96 (1 at 100%, 1.5 at 150%). Multiplying only
+  // for this Win32 call is the inverse of the collector's virtualization, so
+  // GetWindowRect still reads 854×481. Passing logical*scale to QWidget::resize
+  // would scale a second time and the laptop would measure larger.
+  qreal scale = widget->devicePixelRatioF();
+  if (!(scale > 0.0))
+    scale = 1.0;
+  SetWindowPos(
+      hwnd, nullptr, 0, 0, qRound(logical.width() * scale), qRound(logical.height() * scale),
+      SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE
+  );
+#else
+  Q_UNUSED(widget);
+  Q_UNUSED(logical);
+#endif
+}
+
+} // namespace
+
 void MainWindow::applyHomeStageSize()
 {
   if (!m_home || isMaximized())
     return;
-  if (Settings::value(Settings::Gui::WindowGeometry).toRect().isValid())
-    return;
 
-  // The central widget's item in QMainWindowLayout keeps the legacy panels'
-  // size until updateGeometry(). Activate after that so the platform min/max
-  // track the design size, not the old log panel. adjustSize() reads the hint
-  // before activate(), so a single call (log expanded) kept the legacy size
-  // and a second call (log collapsed) was the only path that reached 854×481.
+  // A saved gui/windowGeometry must not skip this. That rect is the size the
+  // window happened to have on last exit, including the stale 720-wide ones.
   if (ui->topLevelWidget) {
     ui->topLevelWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     ui->topLevelWidget->updateGeometry();
@@ -454,14 +481,14 @@ void MainWindow::applyHomeStageSize()
   const QSize floor = m_home->minimumSizeHint();
   setMinimumSize(qMin(floor.width(), target.width()), qMin(floor.height(), target.height()));
 
-  // QWidget::resize returns without touching the platform when crect is already
-  // the target. A frameless WS_POPUP never gets WM_SIZE, so the HWND can stay
-  // at the legacy size (720 wide) while Qt already believes it is 854×481.
-  // Step off the target and back so both the widget and the HWND are updated.
+  // resize() is a no-op when Qt's crect is already the target, and a frameless
+  // WS_POPUP does not get WM_SIZE, so the HWND can stay 720-wide. Step off the
+  // target, then set it in logical pixels (not logical*DPI).
   resize(target + QSize(1, 0));
   resize(target);
   if (QWindow *handle = windowHandle())
     handle->resize(target);
+  pushFramelessWindowSize(this, target);
   m_expandedSize = target;
 
   if (isVisible() && !m_homeStageResizePosted) {
@@ -581,21 +608,7 @@ void MainWindow::installHomeStage()
     minW = qMin(minW, target.width());
     minH = qMin(minH, target.height());
   }
-  const bool savedGeometry = Settings::value(Settings::Gui::WindowGeometry).toRect().isValid();
-  if (!savedGeometry) {
-    applyHomeStageSize();
-  } else if (target.isValid()) {
-    const QSize current = size();
-    // A saved rect from the previous 1280×720 stage, or one smaller than the
-    // design size, still snaps. Any other saved rect is the user's.
-    const bool previousStage =
-        current.width() >= 1100 && current.width() <= 1400 && current.height() >= 620 && current.height() <= 820;
-    const bool undersized = current.width() < target.width() || current.height() < target.height();
-    if (!isMaximized() && (previousStage || undersized)) {
-      resize(target);
-      m_expandedSize = size();
-    }
-  }
+  applyHomeStageSize();
   setMinimumSize(minW, minH);
   if (QScreen *screen = this->screen()) {
     const QRect avail = screen->availableGeometry();
@@ -764,14 +777,8 @@ void MainWindow::toggleLogVisible(bool visible)
   Settings::setValue(Settings::Gui::LogExpanded, visible);
   if (m_logCollapsible)
     m_logCollapsible->setExpanded(visible);
-  if (visible) {
-    QTimer::singleShot(15, this, [this] { resize(m_expandedSize); });
-  } else {
-    m_expandedSize = geometry().size();
-    adjustSize();
-    setFixedSize(size());
-  }
-  Settings::setValue(Settings::Gui::WindowGeometry, geometry());
+  // The log is not in the main window. adjustSize()/setFixedSize() here locked
+  // the frameless window to the legacy width and saved that rect on exit.
 }
 
 void MainWindow::settingsChanged(const QString &key)
