@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Tests for litekvm-pro features: AutoStart, AutoConnect, RoleNegotiation.
 #include "../../lib/arch/LowLatencySocket.h"
+#include "../../lib/deskflow/ClipboardYield.h"
 #include "../../lib/deskflow/CursorHider.h"
 #include "../../lib/deskflow/JumpZoneMouse.h"
 #include "../../lib/deskflow/MouseMotionCoalescer.h"
@@ -23,6 +24,9 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
+
+#include <string>
+#include <vector>
 
 using namespace litekvm;
 
@@ -590,6 +594,190 @@ private Q_SLOTS:
     QVERIFY(resetDragEdgeHold(false, true));
     QVERIFY(pointerInEdgeBand(8, 675, 0, 0, 1920, 1080, kDragLandingMargin));
     QVERIFY(!pointerInEdgeBand(960, 540, 0, 0, 1920, 1080, kDragLandingMargin));
+  }
+
+  void buttonUpSwitchDoesNotImmediatelyRecross()
+  {
+    // 200–400 ms, and not the file-drag hold.
+    QVERIFY(kSwitchSettleMs >= 200);
+    QVERIFY(kSwitchSettleMs <= 400);
+    QVERIFY(kSwitchSettleSeconds < kDragSettleSeconds);
+    QVERIFY(kSwitchLandingMargin >= 40);
+    QVERIFY(kSwitchLandingMargin <= 80);
+    QVERIFY(kSwitchLandingMargin < kDragLandingMargin);
+    QCOMPARE(kDragSettleSeconds, 1.0);
+    QCOMPARE(kDragLandingMargin, 120);
+
+    // The park shows up inside this window. The hold must still be active,
+    // and a file drag must still be holding at the same moment.
+    QVERIFY(settleHolding(0.058, kSwitchSettleSeconds));
+    QVERIFY(!settleHolding(kSwitchSettleSeconds, kSwitchSettleSeconds));
+    QVERIFY(settleHolding(0.058, kDragSettleSeconds));
+    QVERIFY(settleHolding(0.999, kDragSettleSeconds));
+    QVERIFY(!settleHolding(kDragSettleSeconds, kDragSettleSeconds));
+
+    // Laptop 2520×1680, button-up landing on the right edge (the live x=2519).
+    // That pixel is a return edge when each machine is on both sides.
+    const auto laptop = landInsideScreen(0, 0, 2520, 1680, 2519, 840, false);
+    QCOMPARE(laptop.x, 2520 - 1 - kSwitchLandingMargin);
+    QCOMPARE(laptop.y, 840);
+    QCOMPARE(laptop.settleSeconds, kSwitchSettleSeconds);
+    QVERIFY(laptop.x < 2519);
+
+    // A few pixels of residual motion cannot leave, and cannot sit on 2519.
+    const auto nudge = applyRelativeDuringSettle(laptop.x, laptop.y, 8, 0, 0, 0, 2520, 1680, laptop.margin, true);
+    QVERIFY(!nudge.blockedRecross);
+    QVERIFY(nudge.x <= 2520 - 1 - kSwitchLandingMargin);
+    QCOMPARE(nudge.x, laptop.x);
+
+    // Inland motion during the hold still moves.
+    const auto inland =
+        applyRelativeDuringSettle(laptop.x - 30, laptop.y, -8, 4, 0, 0, 2520, 1680, laptop.margin, true);
+    QCOMPARE(inland.x, laptop.x - 38);
+    QCOMPARE(inland.y, 844);
+    QVERIFY(!inland.blockedRecross);
+
+    // The old failure: sitting on 2519, +1 leaves. The hold refuses it.
+    // 400 px is under a quarter of 2520, so the center-warp filter lets it
+    // through; the settle drops it.
+    QVERIFY(!isCenterWarpEcho(400, 0, 2520, 1680));
+    const auto spike = applyRelativeDuringSettle(laptop.x, laptop.y, 400, 0, 0, 0, 2520, 1680, laptop.margin, true);
+    QCOMPARE(spike.x, laptop.x);
+    QCOMPARE(spike.y, laptop.y);
+    const bool holding = settleHolding(0.050, kSwitchSettleSeconds);
+    const auto bounce = applyRelativeDuringSettle(2519, 840, 1, 0, 0, 0, 2520, 1680, kSwitchLandingMargin, holding);
+    QVERIFY(bounce.blockedRecross);
+    QVERIFY(bounce.x <= 2520 - 1 - kSwitchLandingMargin);
+
+    // After the hold, the same step off the real edge is a deliberate return.
+    const auto back = applyRelativeDuringSettle(2519, 840, 1, 0, 0, 0, 2520, 1680, kSwitchLandingMargin, false);
+    QVERIFY(!back.blockedRecross);
+    QCOMPARE(back.x, 2520);
+
+    // Desktop return at x=1..8 (live logs) is pulled in, and an absolute
+    // sample on that edge does not stay there during the hold.
+    const auto desk = landInsideScreen(0, 0, 1920, 1080, 4, 790, false);
+    QCOMPARE(desk.x, kSwitchLandingMargin);
+    QCOMPARE(desk.y, 790);
+    const auto edge = applyAbsoluteDuringSettle(1, 790, 0, 0, 1920, 1080, kSwitchLandingMargin, true);
+    QVERIFY(edge.blockedRecross);
+    QCOMPARE(edge.x, kSwitchLandingMargin);
+    const auto middle = applyAbsoluteDuringSettle(960, 540, 0, 0, 1920, 1080, kSwitchLandingMargin, true);
+    QCOMPARE(middle.x, 960);
+    QCOMPARE(middle.y, 540);
+    QVERIFY(!middle.blockedRecross);
+    const auto top = landInsideScreen(0, 0, 1920, 1080, 400, 0, false);
+    QCOMPARE(top.y, kSwitchLandingMargin);
+
+    // File drag is unchanged: 120 px and a 1 s hold, including the fast
+    // cross that used to land at x=8.
+    const auto drag = landInsideScreen(0, 0, 1920, 1080, 8, 675, true);
+    QCOMPARE(drag.x, kDragLandingMargin);
+    QCOMPARE(drag.y, 675);
+    QCOMPARE(drag.settleSeconds, kDragSettleSeconds);
+    QCOMPARE(drag.margin, kDragLandingMargin);
+  }
+
+  void largeClipboardYieldsToMouse()
+  {
+    constexpr size_t payloadBytes = 900 * 1024;
+    QVERIFY(payloadBytes > kLargeClipboardBytes);
+    QVERIFY(kClipboardChunkBytes < payloadBytes);
+    QVERIFY(kClipboardYieldSeconds > 0.0);
+    QVERIFY(kClipboardYieldSeconds <= 0.05);
+    QVERIFY(deferLargeClipboardDuringSettle(payloadBytes, true, true));
+    QVERIFY(!deferLargeClipboardDuringSettle(payloadBytes, false, true));
+    QVERIFY(!deferLargeClipboardDuringSettle(100, true, true));
+    QVERIFY(!deferLargeClipboardDuringSettle(kLargeClipboardBytes, true, true));
+    QVERIFY(deferLargeClipboardDuringSettle(kLargeClipboardBytes + 1, true, true));
+    QVERIFY(!deferLargeClipboardDuringSettle(payloadBytes, true, false));
+
+    // The size header is one piece. A mouse move is processed before any
+    // payload byte, and before the send is finished.
+    ClipboardPieceCursor cursor(payloadBytes);
+    int piece = -1;
+    size_t offset = 0;
+    size_t size = 0;
+    QVERIFY(cursor.takePiece(piece, offset, size));
+    QCOMPARE(piece, 0);
+    QVERIFY(!cursor.finished());
+
+    std::vector<std::string> order;
+    order.emplace_back("clip");
+    order.emplace_back("mouse");
+    size_t sent = 0;
+    int dataPieces = 0;
+    while (!cursor.finished()) {
+      QVERIFY(cursor.takePiece(piece, offset, size));
+      order.emplace_back("clip");
+      if (piece == 1) {
+        ++dataPieces;
+        QVERIFY(size <= kClipboardChunkBytes);
+        QVERIFY(size > 0);
+        sent += size;
+      }
+      if (!cursor.finished())
+        order.emplace_back("mouse");
+    }
+    QCOMPARE(sent, payloadBytes);
+    QVERIFY(dataPieces > 1);
+    QVERIFY(cursor.finished());
+    QVERIFY(order.front() == "clip");
+    QVERIFY(order.at(1) == "mouse");
+    QVERIFY(order.back() == "clip");
+
+    ClipboardPieceCursor empty(0);
+    int pieces = 0;
+    while (!empty.finished()) {
+      QVERIFY(empty.takePiece(piece, offset, size));
+      ++pieces;
+      QVERIFY(pieces < 6);
+    }
+    QCOMPARE(pieces, 3);
+
+    ClipboardPieceCursor exact(kClipboardChunkBytes);
+    dataPieces = 0;
+    sent = 0;
+    while (!exact.finished()) {
+      exact.takePiece(piece, offset, size);
+      if (piece == 1) {
+        ++dataPieces;
+        sent += size;
+      }
+    }
+    QCOMPARE(dataPieces, 1);
+    QCOMPARE(sent, kClipboardChunkBytes);
+
+    // Unchanged grab must not empty the screen that already has the bytes.
+    // A deferred switch send is kept so the flush can still deliver it.
+    const ClipboardGrabAction skip = clipboardGrabResend(true, false, true);
+    QVERIFY(!skip.grabActive);
+    QVERIFY(!skip.sendNow);
+    QVERIFY(!skip.keepDeferred);
+    const ClipboardGrabAction keep = clipboardGrabResend(true, true, true);
+    QVERIFY(!keep.grabActive);
+    QVERIFY(!keep.sendNow);
+    QVERIFY(keep.keepDeferred);
+    const ClipboardGrabAction changed = clipboardGrabResend(false, true, true);
+    QVERIFY(changed.grabActive);
+    QVERIFY(changed.sendNow);
+    QVERIFY(!changed.keepDeferred);
+
+    // Mouse messages in the same read are applied before the OS clipboard.
+    ClipboardApplyGate gate;
+    gate.defer(0, std::string(payloadBytes, 'q'));
+    QVERIFY(gate.hasPending());
+    const auto pending = gate.takePending();
+    QCOMPARE(pending.size(), static_cast<size_t>(1));
+    QCOMPARE(pending[0].bytes.size(), payloadBytes);
+    QVERIFY(!gate.hasPending());
+
+    const std::vector<char> ops = {'C', 'M', 'F', 'M'};
+    const auto trace = replayClipboardAndMouse(ops, std::string(payloadBytes, 'q'));
+    QCOMPARE(trace.size(), static_cast<size_t>(3));
+    QVERIFY(trace[0] == "mouse");
+    QVERIFY(trace[1] == "mouse");
+    QVERIFY(trace[2] == "apply");
   }
 
   void landedFileIsClosedAndAFailedCopyLeavesNothing()
