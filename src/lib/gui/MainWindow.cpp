@@ -82,6 +82,7 @@
 #include <QSizePolicy>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QWindow>
 
 #include <memory>
 
@@ -262,14 +263,12 @@ void MainWindow::restoreWindow()
 {
   const QRect saved = Settings::value(Settings::Gui::WindowGeometry).toRect();
   const auto totalGeometry = QGuiApplication::primaryScreen()->availableGeometry();
-  // No saved rect yet: the legacy panels are still the central widget, so
-  // adjustSize() is only a stand-in until installHomeStage() replaces them.
-  // Once NeoHome is installed, do not adjustSize() here. That call reads
-  // QMainWindow's cached size hint before layout()->activate(), and the cache
-  // still describes the old panels. logExpanded == false used to call
-  // adjustSize() a second time after that activation, which is why a laptop
-  // with the log collapsed opened at NeoHome's 854×481 and a desktop with the
-  // log expanded kept the legacy size (then widened to the 720 minimum).
+  // Before NeoHome exists, adjustSize() only sizes the legacy panels.
+  // Afterwards the design size is applied explicitly. adjustSize() is not
+  // used then: it samples the main-window hint before activate(), so only
+  // the collapsed-log second call ever saw 854×481, and a later resize to
+  // that same size is a no-op when Qt's crect is already 854×481 while the
+  // frameless HWND is still the legacy size.
   if (saved.isValid())
     setGeometry(saved);
   else if (!m_home)
@@ -428,11 +427,47 @@ void MainWindow::applyHomeStageSize()
 {
   if (!m_home || isMaximized())
     return;
+  if (Settings::value(Settings::Gui::WindowGeometry).toRect().isValid())
+    return;
+
+  // The central widget's item in QMainWindowLayout keeps the legacy panels'
+  // size until updateGeometry(). Activate after that so the platform min/max
+  // track the design size, not the old log panel. adjustSize() reads the hint
+  // before activate(), so a single call (log expanded) kept the legacy size
+  // and a second call (log collapsed) was the only path that reached 854×481.
+  if (ui->topLevelWidget) {
+    ui->topLevelWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    ui->topLevelWidget->updateGeometry();
+  }
+  if (QLayout *lay = layout()) {
+    lay->invalidate();
+    lay->activate();
+  }
+
   const QSize target = clampedHomeStageSize();
   if (!target.isValid())
     return;
+
+  // A tall minimum left by the legacy layout would clamp the height back up.
+  // A maximum left at the legacy width would clamp 854 back to 720.
+  setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+  const QSize floor = m_home->minimumSizeHint();
+  setMinimumSize(qMin(floor.width(), target.width()), qMin(floor.height(), target.height()));
+
+  // QWidget::resize returns without touching the platform when crect is already
+  // the target. A frameless WS_POPUP never gets WM_SIZE, so the HWND can stay
+  // at the legacy size (720 wide) while Qt already believes it is 854×481.
+  // Step off the target and back so both the widget and the HWND are updated.
+  resize(target + QSize(1, 0));
   resize(target);
-  m_expandedSize = size();
+  if (QWindow *handle = windowHandle())
+    handle->resize(target);
+  m_expandedSize = target;
+
+  if (isVisible() && !m_homeStageResizePosted) {
+    m_homeStageResizePosted = true;
+    QTimer::singleShot(0, this, [this] { applyHomeStageSize(); });
+  }
 }
 
 void MainWindow::installHomeStage()

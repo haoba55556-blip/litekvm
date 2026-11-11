@@ -231,6 +231,8 @@ private:
   bool m_newClientPromptShowing = false;
   bool m_serverConfigDialogVisible = false;
   QSize m_expandedSize = QSize();
+  // One extra apply after show, once the frameless HWND exists.
+  bool m_homeStageResizePosted = false;
   QStringList m_checkedClients;
   QStringList m_checkedServers;
   QSystemTrayIcon *m_trayIcon = nullptr;
