@@ -20,9 +20,16 @@
 #include "../../lib/litekvm/RoleNegotiation.h"
 #include "../../lib/litekvm/TrustStore.h"
 
+#include <QDir>
+#include <QDirIterator>
 #include <QFile>
+#include <QFileInfo>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+
+#ifndef Q_OS_WIN
+#include <sys/stat.h>
+#endif
 #include <QtTest>
 
 #include <string>
@@ -835,6 +842,290 @@ private Q_SLOTS:
     QVERIFY(keptFile.open(QIODevice::ReadOnly));
     QCOMPARE(keptFile.readAll(), QByteArray("keep"));
     keptFile.close();
+  }
+
+  void landedDirectoryCopiesTheTreeAndAFileStillUsesThePartFile()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString root = dir.path();
+    const auto writeFile = [](const QString &path, const QByteArray &bytes) {
+      QFile file(path);
+      if (!file.open(QIODevice::WriteOnly))
+        return false;
+      return file.write(bytes) == bytes.size();
+    };
+    const auto readAll = [](const QString &path) {
+      QFile file(path);
+      if (!file.open(QIODevice::ReadOnly))
+        return QByteArray();
+      return file.readAll();
+    };
+    const auto filesUnder = [](const QString &tree) {
+      QStringList out;
+      QDirIterator it(tree, QDir::Files | QDir::Hidden | QDir::NoSymLinks, QDirIterator::Subdirectories);
+      while (it.hasNext()) {
+        it.next();
+        out.append(QDir(tree).relativeFilePath(it.filePath()));
+      }
+      out.sort();
+      return out;
+    };
+
+    const QString source = QDir(root).filePath(QStringLiteral("合同协议"));
+    QVERIFY(QDir().mkpath(QDir(source).filePath(QStringLiteral("nested"))));
+    QVERIFY(QDir().mkpath(QDir(source).filePath(QStringLiteral("empty"))));
+    QVERIFY(writeFile(QDir(source).filePath(QStringLiteral("说明.txt")), QByteArrayLiteral("contract")));
+    QVERIFY(writeFile(QDir(source).filePath(QStringLiteral(".secret")), QByteArrayLiteral("hidden")));
+    QVERIFY(writeFile(QDir(source).filePath(QStringLiteral("nested/b.txt")), QByteArrayLiteral("bee")));
+    QVERIFY(writeFile(QDir(source).filePath(QStringLiteral("nested/zero.dat")), QByteArray()));
+
+    const QString desk = QDir(root).filePath(QStringLiteral("desk"));
+    QVERIFY(QDir().mkpath(desk));
+    QVERIFY(writeFile(QDir(desk).filePath(QStringLiteral("说明.txt")), QByteArrayLiteral("do-not-flatten")));
+
+    const QStringList expect = [] {
+      QStringList names;
+      names << QStringLiteral(".secret") << QStringLiteral("nested/b.txt") << QStringLiteral("nested/zero.dat")
+            << QStringLiteral("说明.txt");
+      names.sort();
+      return names;
+    }();
+    QCOMPARE(filesUnder(source), expect);
+
+    const PlacedFiles placed = placeReceivedFiles({source}, desk);
+    const QByteArray placedWhy = placed.failReason.toUtf8();
+    QVERIFY2(placed.failReason.isEmpty(), placedWhy.constData());
+    QVERIFY(placed.failReason != QStringLiteral("not-a-file"));
+    QVERIFY(QFileInfo(placed.landed).isDir());
+    QCOMPARE(QFileInfo(placed.landed).fileName(), QStringLiteral("合同协议"));
+    QCOMPARE(filesUnder(placed.landed), expect);
+    QCOMPARE(filesUnder(placed.landed).size(), filesUnder(source).size());
+    QCOMPARE(readAll(QDir(placed.landed).filePath(QStringLiteral("说明.txt"))), QByteArrayLiteral("contract"));
+    QCOMPARE(readAll(QDir(placed.landed).filePath(QStringLiteral(".secret"))), QByteArrayLiteral("hidden"));
+    QCOMPARE(readAll(QDir(placed.landed).filePath(QStringLiteral("nested/b.txt"))), QByteArrayLiteral("bee"));
+    QCOMPARE(readAll(QDir(placed.landed).filePath(QStringLiteral("nested/zero.dat"))), QByteArray());
+    QVERIFY(QFileInfo(QDir(placed.landed).filePath(QStringLiteral("empty"))).isDir());
+    QVERIFY(!QFileInfo::exists(placed.landed + QString::fromLatin1(kClipPartSuffix)));
+    QCOMPARE(readAll(QDir(desk).filePath(QStringLiteral("说明.txt"))), QByteArrayLiteral("do-not-flatten"));
+    const QStringList top = QDir(desk).entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot);
+    QVERIFY(top.contains(QStringLiteral("合同协议")));
+    QVERIFY(top.contains(QStringLiteral("说明.txt")));
+    QCOMPARE(top.size(), 2);
+
+    const QStringList beforeRefuse = QDir(desk).entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot);
+    const LandedFile refused = landFinishedFile(source, desk, QFileInfo(source).size());
+    QVERIFY(!refused.ok);
+    QVERIFY(refused.path.isEmpty());
+    QCOMPARE(refused.reason, QStringLiteral("not-a-file"));
+    QCOMPARE(QDir(desk).entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot), beforeRefuse);
+    QCOMPARE(readAll(QDir(placed.landed).filePath(QStringLiteral("说明.txt"))), QByteArrayLiteral("contract"));
+
+    const PlacedFiles again = placeReceivedFiles({source}, desk);
+    const QByteArray againWhy = again.failReason.toUtf8();
+    QVERIFY2(again.failReason.isEmpty(), againWhy.constData());
+    QCOMPARE(QFileInfo(again.landed).fileName(), QStringLiteral("合同协议 (1)"));
+    QVERIFY(QFileInfo(again.landed).isDir());
+    QCOMPARE(filesUnder(again.landed), expect);
+    QCOMPARE(readAll(QDir(placed.landed).filePath(QStringLiteral("说明.txt"))), QByteArrayLiteral("contract"));
+    QVERIFY(!QFileInfo::exists(again.landed + QString::fromLatin1(kClipPartSuffix)));
+
+    const QString report = QDir(root).filePath(QStringLiteral("report.v2"));
+    QVERIFY(QDir().mkpath(QDir(report).filePath(QStringLiteral("inner"))));
+    QVERIFY(writeFile(QDir(report).filePath(QStringLiteral("inner/a.txt")), QByteArrayLiteral("v2")));
+    QVERIFY(QDir().mkpath(QDir(desk).filePath(QStringLiteral("report.v2"))));
+    QVERIFY(writeFile(QDir(desk).filePath(QStringLiteral("report.v2/keep.txt")), QByteArrayLiteral("keep")));
+    const PlacedFiles dotted = placeReceivedFiles({report}, desk);
+    const QByteArray dottedWhy = dotted.failReason.toUtf8();
+    QVERIFY2(dotted.failReason.isEmpty(), dottedWhy.constData());
+    QCOMPARE(QFileInfo(dotted.landed).fileName(), QStringLiteral("report (1).v2"));
+    QVERIFY(QFileInfo(dotted.landed).isDir());
+    QCOMPARE(readAll(QDir(dotted.landed).filePath(QStringLiteral("inner/a.txt"))), QByteArrayLiteral("v2"));
+    QCOMPARE(readAll(QDir(desk).filePath(QStringLiteral("report.v2/keep.txt"))), QByteArrayLiteral("keep"));
+
+    const QString partDir = QDir(root).filePath(QStringLiteral("notes.litekvm-part"));
+    QVERIFY(QDir().mkpath(partDir));
+    QVERIFY(writeFile(QDir(partDir).filePath(QStringLiteral("n.txt")), QByteArrayLiteral("n")));
+    const PlacedFiles partFolder = placeReceivedFiles({partDir}, desk);
+    const QByteArray partWhy = partFolder.failReason.toUtf8();
+    QVERIFY2(partFolder.failReason.isEmpty(), partWhy.constData());
+    QCOMPARE(QFileInfo(partFolder.landed).fileName(), QStringLiteral("notes.litekvm-part"));
+    QVERIFY(QFileInfo(partFolder.landed).isDir());
+    QCOMPARE(readAll(QDir(partFolder.landed).filePath(QStringLiteral("n.txt"))), QByteArrayLiteral("n"));
+    QVERIFY(!QFileInfo::exists(partFolder.landed + QString::fromLatin1(kClipPartSuffix)));
+
+    const QString partFile = QDir(root).filePath(QStringLiteral("payload.litekvm-part"));
+    QVERIFY(writeFile(partFile, QByteArrayLiteral("nope")));
+    const int deskCount = QDir(desk).entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot).size();
+    const PlacedFiles refusedPart = placeReceivedFiles({partFile}, desk);
+    QVERIFY(refusedPart.landed.isEmpty());
+    QCOMPARE(refusedPart.failReason, QStringLiteral("part-file"));
+    QCOMPARE(QDir(desk).entryList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot).size(), deskCount);
+
+    const QString photo = QDir(root).filePath(QStringLiteral("photo.jpg"));
+    const QByteArray photoBytes(236, '\x42');
+    QVERIFY(writeFile(photo, photoBytes));
+    QVERIFY(writeFile(QDir(desk).filePath(QStringLiteral("photo.jpg")), QByteArrayLiteral("keep")));
+    const PlacedFiles photoLand = placeReceivedFiles({photo}, desk);
+    const QByteArray photoWhy = photoLand.failReason.toUtf8();
+    QVERIFY2(photoLand.failReason.isEmpty(), photoWhy.constData());
+    QVERIFY(QFileInfo(photoLand.landed).isFile());
+    QVERIFY(!QFileInfo(photoLand.landed).isDir());
+    QCOMPARE(QFileInfo(photoLand.landed).fileName(), QStringLiteral("photo (1).jpg"));
+    QCOMPARE(readAll(photoLand.landed), photoBytes);
+    QVERIFY(!QFileInfo::exists(photoLand.landed + QString::fromLatin1(kClipPartSuffix)));
+    QCOMPARE(readAll(QDir(desk).filePath(QStringLiteral("photo.jpg"))), QByteArrayLiteral("keep"));
+
+    const QString extra = QDir(root).filePath(QStringLiteral("合同协议-extra"));
+    QVERIFY(QDir().mkpath(extra));
+    const LandedFile beside = landFinishedDirectory(source, extra);
+    const QByteArray besideWhy = beside.reason.toUtf8();
+    QVERIFY2(beside.ok, besideWhy.constData());
+    QCOMPARE(QFileInfo(beside.path).fileName(), QStringLiteral("合同协议"));
+    QVERIFY(beside.path.contains(QStringLiteral("合同协议-extra")));
+    QCOMPARE(filesUnder(beside.path).size(), 4);
+    QCOMPARE(filesUnder(source).size(), 4);
+
+    const QString outcome = remoteDragOutcomeDetail("already-up", 1, true, placed.landed, QString());
+    QVERIFY(outcome.startsWith(QStringLiteral("result=copy")));
+    QVERIFY(outcome.contains(QStringLiteral("reason=already-up")));
+    QVERIFY(outcome.contains(QStringLiteral("appear_grace=0")));
+    QVERIFY(outcome.contains(QStringLiteral("landed=") + placed.landed));
+    QVERIFY(!outcome.contains(QStringLiteral("landed=-")));
+    QVERIFY(!outcome.contains(QStringLiteral("result=none")));
+
+    PlacedFiles shown;
+    shown.landed = placed.landed;
+    const QString drop =
+        dropFileTraceDetail(QStringLiteral("WorkerW"), QStringLiteral("C:/Users/byd/Desktop"), shown, "already-up");
+    QVERIFY(drop.contains(QStringLiteral("class=WorkerW")));
+    QVERIFY(drop.contains(QStringLiteral("dir=C:/Users/byd/Desktop")));
+    QVERIFY(drop.contains(QStringLiteral("landed=") + placed.landed));
+    QVERIFY(drop.contains(QStringLiteral("reason=already-up")));
+    QVERIFY(!drop.contains(QStringLiteral("landed=-")));
+  }
+
+  void failedDirectoryLandLeavesNothingAndIsNotLoggedAsCopy()
+  {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString root = dir.path();
+    const auto writeFile = [](const QString &path, const QByteArray &bytes) {
+      QFile file(path);
+      if (!file.open(QIODevice::WriteOnly))
+        return false;
+      return file.write(bytes) == bytes.size();
+    };
+    const auto readAll = [](const QString &path) {
+      QFile file(path);
+      if (!file.open(QIODevice::ReadOnly))
+        return QByteArray();
+      return file.readAll();
+    };
+
+    const QString source = QDir(root).filePath(QStringLiteral("悦佳和资料"));
+    QVERIFY(QDir().mkpath(QDir(source).filePath(QStringLiteral("nested"))));
+    QVERIFY(writeFile(QDir(source).filePath(QStringLiteral("a.txt")), QByteArrayLiteral("hello-partial")));
+    QVERIFY(writeFile(QDir(source).filePath(QStringLiteral("nested/b.txt")), QByteArrayLiteral("bee")));
+
+    const QString desk = QDir(root).filePath(QStringLiteral("desk"));
+    QVERIFY(QDir().mkpath(desk));
+    QVERIFY(writeFile(QDir(desk).filePath(QStringLiteral("keep.txt")), QByteArrayLiteral("keep")));
+
+    const PlacedFiles noPaths = placeReceivedFiles({}, desk);
+    QVERIFY(noPaths.landed.isEmpty());
+    QCOMPARE(noPaths.failReason, QStringLiteral("no-paths"));
+    const QString noPathsLog = remoteDragOutcomeDetail("release", 0, false, noPaths.landed, noPaths.failReason);
+    QVERIFY(noPathsLog.startsWith(QStringLiteral("result=none")));
+    QVERIFY(noPathsLog.contains(QStringLiteral("detail=no-paths")));
+    QVERIFY(!noPathsLog.contains(QStringLiteral("result=copy")));
+
+    const PlacedFiles noFolder = placeReceivedFiles({source}, QString());
+    QVERIFY(noFolder.landed.isEmpty());
+    QCOMPARE(noFolder.failReason, QStringLiteral("no-folder"));
+
+    const LandedFile missing = landFinishedDirectory(source, QDir(root).filePath(QStringLiteral("no-such")));
+    QVERIFY(!missing.ok);
+    QVERIFY(missing.path.isEmpty());
+    QCOMPARE(missing.reason, QStringLiteral("dest-missing"));
+
+    const LandedFile into = landFinishedDirectory(source, QDir(source).filePath(QStringLiteral("nested")));
+    QVERIFY(!into.ok);
+    QVERIFY(into.path.isEmpty());
+    QCOMPARE(into.reason, QStringLiteral("dest-inside-source"));
+    QCOMPARE(readAll(QDir(source).filePath(QStringLiteral("a.txt"))), QByteArrayLiteral("hello-partial"));
+    QVERIFY(!QFileInfo::exists(QDir(source).filePath(QStringLiteral("nested/悦佳和资料"))));
+    QVERIFY(!QFileInfo::exists(QDir(source).filePath(QStringLiteral("nested/悦佳和资料.litekvm-part"))));
+
+    const QString refusedLog = remoteDragOutcomeDetail("already-up", 1, true, QString(), QStringLiteral("not-a-file"));
+    QVERIFY(refusedLog.startsWith(QStringLiteral("result=none")));
+    QVERIFY(refusedLog.contains(QStringLiteral("reason=land-failed")));
+    QVERIFY(refusedLog.contains(QStringLiteral("detail=not-a-file")));
+    QVERIFY(refusedLog.contains(QStringLiteral("paths=1")));
+    QVERIFY(refusedLog.contains(QStringLiteral("appear_grace=0")));
+    QVERIFY(!refusedLog.contains(QStringLiteral("result=copy")));
+
+    PlacedFiles emptyPlace;
+    emptyPlace.failReason = QStringLiteral("not-a-file");
+    const QString dropRefused = dropFileTraceDetail(
+        QStringLiteral("WorkerW"), QStringLiteral("C:/Users/byd/Desktop"), emptyPlace, "already-up"
+    );
+    QVERIFY(dropRefused.contains(QStringLiteral("landed=-")));
+    QVERIFY(dropRefused.contains(QStringLiteral("reason=land-failed detail=not-a-file")));
+    QVERIFY(!dropRefused.contains(QStringLiteral("result=copy")));
+    QVERIFY(!dropRefused.contains(QStringLiteral("reason=already-up")));
+
+    const QString nested = QDir(source).filePath(QStringLiteral("nested"));
+    const QFile::Permissions nestedMode = QFileInfo(nested).permissions();
+    struct RestoreMode
+    {
+      QString path;
+      QFile::Permissions mode;
+      ~RestoreMode()
+      {
+        QFile::setPermissions(path, mode);
+      }
+    } restore{nested, nestedMode};
+
+    QString expectReason = QStringLiteral("unsupported-entry");
+    QVERIFY(QFile::setPermissions(nested, QFileDevice::Permissions()));
+    if (!QFileInfo(nested).isReadable()) {
+      expectReason = QStringLiteral("open-failed");
+    } else {
+      QFile::setPermissions(nested, nestedMode);
+#if !defined(Q_OS_WIN)
+      const QString fifo = QDir(nested).filePath(QStringLiteral("zz.fifo"));
+      QCOMPARE(::mkfifo(QFile::encodeName(fifo).constData(), 0600), 0);
+#else
+      QSKIP("cannot simulate a failed directory read on this platform");
+#endif
+    }
+
+    const PlacedFiles failed = placeReceivedFiles({source}, desk);
+    QVERIFY(failed.landed.isEmpty());
+    QCOMPARE(failed.failReason, expectReason);
+    QVERIFY(failed.failReason != QStringLiteral("not-a-file"));
+    QVERIFY(!QFileInfo::exists(QDir(desk).filePath(QStringLiteral("悦佳和资料"))));
+    QVERIFY(!QFileInfo::exists(QDir(desk).filePath(QStringLiteral("悦佳和资料.litekvm-part"))));
+    QVERIFY(!QFileInfo::exists(QDir(desk).filePath(QStringLiteral("悦佳和资料 (1)"))));
+    QVERIFY(!QFileInfo::exists(QDir(desk).filePath(QStringLiteral("a.txt"))));
+    QVERIFY(!QFileInfo::exists(QDir(desk).filePath(QStringLiteral("b.txt"))));
+    QVERIFY(!QFileInfo::exists(QDir(desk).filePath(QStringLiteral("nested"))));
+    QCOMPARE(readAll(QDir(desk).filePath(QStringLiteral("keep.txt"))), QByteArrayLiteral("keep"));
+    QCOMPARE(readAll(QDir(source).filePath(QStringLiteral("a.txt"))), QByteArrayLiteral("hello-partial"));
+    QFile::setPermissions(nested, nestedMode);
+    QCOMPARE(readAll(QDir(source).filePath(QStringLiteral("nested/b.txt"))), QByteArrayLiteral("bee"));
+
+    const QString outcome = remoteDragOutcomeDetail("already-up", 1, false, failed.landed, failed.failReason);
+    QVERIFY(outcome.startsWith(QStringLiteral("result=none")));
+    QVERIFY(outcome.contains(QStringLiteral("detail=") + expectReason));
+    QVERIFY(outcome.contains(QStringLiteral("appear_grace=1")));
+    QVERIFY(!outcome.contains(QStringLiteral("result=copy")));
+
+    const QString drop = dropFileTraceDetail(QStringLiteral("WorkerW"), desk, failed, "already-up");
+    QVERIFY(drop.contains(QStringLiteral("landed=-")));
+    QVERIFY(drop.contains(QStringLiteral("reason=land-failed detail=") + expectReason));
+    QVERIFY(!drop.contains(QStringLiteral("result=copy")));
   }
 
   void serverHoldsADragUntilThePointerReturns()
