@@ -725,6 +725,46 @@ Además, verifique que puede %1 el archivo de configuración del servidor: %2</t
 接收后文件会存到收件目录，并放进剪贴板，可以直接粘贴。</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>设置</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>偏好设置…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pro 设置…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>关于</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>帮助</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>未连接</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>断开中</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>连接中</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>已连接</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>等待连接</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>NewScreenWidget</name>
@@ -1723,6 +1763,45 @@ Al habilitar esta opción, se deshabilitará la interfaz gráfica de usuario (GU
     </message>
     <message>
         <source>连接</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>deskflow::gui::NeoHome</name>
+    <message>
+        <source>未连接</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>已连接</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>断开</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>本机</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>笔记本</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>添加电脑</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>即将支持</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>添加更多电脑还在准备中。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>知道了</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
