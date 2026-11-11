@@ -63,6 +63,7 @@
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QLayout>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QMenu>
@@ -259,24 +260,36 @@ MainWindow::~MainWindow()
 
 void MainWindow::restoreWindow()
 {
-  auto windowGeometry = Settings::value(Settings::Gui::WindowGeometry).toRect();
+  const QRect saved = Settings::value(Settings::Gui::WindowGeometry).toRect();
   const auto totalGeometry = QGuiApplication::primaryScreen()->availableGeometry();
-  if (!windowGeometry.isValid()) {
+  // No saved rect yet: the legacy panels are still the central widget, so
+  // adjustSize() is only a stand-in until installHomeStage() replaces them.
+  // Once NeoHome is installed, do not adjustSize() here. That call reads
+  // QMainWindow's cached size hint before layout()->activate(), and the cache
+  // still describes the old panels. logExpanded == false used to call
+  // adjustSize() a second time after that activation, which is why a laptop
+  // with the log collapsed opened at NeoHome's 854×481 and a desktop with the
+  // log expanded kept the legacy size (then widened to the 720 minimum).
+  if (saved.isValid())
+    setGeometry(saved);
+  else if (!m_home)
     adjustSize();
-    windowGeometry = geometry();
-  } else {
-    setGeometry(windowGeometry);
-  }
-  m_expandedSize = geometry().size();
-
-  if (!totalGeometry.contains(windowGeometry)) {
-    QRect screenGeometry = QGuiApplication::primaryScreen()->geometry();
-    move(screenGeometry.center() - rect().center());
-  }
 
   if (!Settings::value(Settings::Gui::LogExpanded).toBool() && m_logCollapsible) {
     m_logCollapsible->setExpanded(false);
-    adjustSize();
+    if (!m_home && !saved.isValid())
+      adjustSize();
+  }
+
+  if (!saved.isValid())
+    applyHomeStageSize();
+
+  m_expandedSize = size();
+
+  const QRect placed = geometry();
+  if (!totalGeometry.contains(placed)) {
+    QRect screenGeometry = QGuiApplication::primaryScreen()->geometry();
+    move(screenGeometry.center() - rect().center());
   }
 }
 
@@ -391,6 +404,37 @@ void MainWindow::reworkPanels()
   applyFileClipboardSettings();
 }
 
+QSize MainWindow::clampedHomeStageSize() const
+{
+  if (!m_home)
+    return {};
+
+  // NeoHome::sizeHint() is the design size in logical pixels (854×481). Qt
+  // maps that to physical pixels, so 100% and 150% sessions get the same shape.
+  QSize target = m_home->sizeHint();
+  QScreen *screen = this->screen();
+  if (!screen)
+    screen = QGuiApplication::primaryScreen();
+  if (!screen)
+    return target;
+
+  const QRect avail = screen->availableGeometry().adjusted(16, 16, -16, -16);
+  target.setWidth(qMin(target.width(), qMax(560, avail.width())));
+  target.setHeight(qMin(target.height(), qMax(360, avail.height())));
+  return target;
+}
+
+void MainWindow::applyHomeStageSize()
+{
+  if (!m_home || isMaximized())
+    return;
+  const QSize target = clampedHomeStageSize();
+  if (!target.isValid())
+    return;
+  resize(target);
+  m_expandedSize = size();
+}
+
 void MainWindow::installHomeStage()
 {
   auto *topLayout = qobject_cast<QVBoxLayout *>(ui->topLevelWidget->layout());
@@ -488,29 +532,34 @@ void MainWindow::installHomeStage()
   });
   connect(m_home, &NeoHome::closeRequested, this, &QWidget::close);
 
-  const QSize hint = m_home->sizeHint();
+  // Swapping the central layout does not invalidate QMainWindowLayout, which
+  // stays activated with the legacy panels' size hint. Drop that cache so a
+  // later size query sees NeoHome, not the log panel.
+  if (QLayout *mainLayout = layout())
+    mainLayout->invalidate();
+
   const QSize smallest = m_home->minimumSizeHint();
-  int targetW = hint.width();
-  int targetH = hint.height();
+  const QSize target = clampedHomeStageSize();
   int minW = smallest.width();
   int minH = smallest.height();
-  if (QScreen *screen = this->screen()) {
-    const QRect avail = screen->availableGeometry().adjusted(16, 16, -16, -16);
-    targetW = qMin(targetW, qMax(560, avail.width()));
-    targetH = qMin(targetH, qMax(360, avail.height()));
-    minW = qMin(minW, targetW);
-    minH = qMin(minH, targetH);
+  if (target.isValid()) {
+    minW = qMin(minW, target.width());
+    minH = qMin(minH, target.height());
   }
-  const QSize current = size();
-  // The previous home stage forced 1280×720 and only grew. Snap that default
-  // (and any smaller restored window) to the two-thirds stage. A size already
-  // at least this large, other than the old default, is left as the user set it.
-  const bool previousStage =
-      current.width() >= 1100 && current.width() <= 1400 && current.height() >= 620 && current.height() <= 820;
-  const bool undersized = current.width() < targetW || current.height() < targetH;
-  if (!isMaximized() && (previousStage || undersized)) {
-    resize(targetW, targetH);
-    m_expandedSize = size();
+  const bool savedGeometry = Settings::value(Settings::Gui::WindowGeometry).toRect().isValid();
+  if (!savedGeometry) {
+    applyHomeStageSize();
+  } else if (target.isValid()) {
+    const QSize current = size();
+    // A saved rect from the previous 1280×720 stage, or one smaller than the
+    // design size, still snaps. Any other saved rect is the user's.
+    const bool previousStage =
+        current.width() >= 1100 && current.width() <= 1400 && current.height() >= 620 && current.height() <= 820;
+    const bool undersized = current.width() < target.width() || current.height() < target.height();
+    if (!isMaximized() && (previousStage || undersized)) {
+      resize(target);
+      m_expandedSize = size();
+    }
   }
   setMinimumSize(minW, minH);
   if (QScreen *screen = this->screen()) {

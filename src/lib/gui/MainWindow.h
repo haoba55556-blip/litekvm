@@ -150,6 +150,8 @@ private:
   void updateScreenName();
   void reworkPanels();
   void installHomeStage();
+  [[nodiscard]] QSize clampedHomeStageSize() const;
+  void applyHomeStageSize();
   void refreshHomeStage();
   void openLegacySettings();
   void onHomeAutoConnectToggled(bool on);
