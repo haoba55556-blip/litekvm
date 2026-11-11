@@ -32,6 +32,8 @@ add_library(${target} STATIC
   MainWindow.cpp
   MainWindow.h
   MainWindow.ui
+  NeoHome.cpp
+  NeoHome.h
   Messages.cpp
   Messages.h
   NearbyPanel.cpp
