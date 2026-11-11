@@ -1999,36 +1999,27 @@ QString shellFolderAtCursor(QString *windowClass)
   return found;
 }
 
-QString placeFilesInFolder(const QStringList &paths, const QString &directory)
+struct DragDropTarget
 {
-  QStringList landed;
-  for (const QString &path : paths) {
-    const qint64 size = QFileInfo(path).size();
-    const litekvm::LandedFile file = litekvm::landFinishedFile(path, directory, size);
-    if (file.ok)
-      landed.append(file.path);
-  }
-  return landed.join(QLatin1Char(';'));
-}
-
-void copyDragUnderCursor(const QStringList &paths, const char *reason)
-{
+  litekvm::PlacedFiles placed;
   QString windowClass;
-  QString folder = shellFolderAtCursor(&windowClass);
-  if (folder.isEmpty()) {
-    folder = desktopDirectory();
-    if (windowClass.isEmpty())
-      windowClass = QStringLiteral("desktop-fallback");
+  QString folder;
+};
+
+DragDropTarget copyDragUnderCursor(const QStringList &paths)
+{
+  DragDropTarget out;
+  out.folder = shellFolderAtCursor(&out.windowClass);
+  if (out.folder.isEmpty()) {
+    out.folder = desktopDirectory();
+    if (out.windowClass.isEmpty())
+      out.windowClass = QStringLiteral("desktop-fallback");
   }
-  const QString landed = folder.isEmpty() ? QString() : placeFilesInFolder(paths, folder);
-  litekvm::ClipboardFileBridge::traceStage(
-      QStringLiteral("drop-file"), QStringLiteral("class=%1 dir=%2 landed=%3 reason=%4")
-                                       .arg(
-                                           windowClass.isEmpty() ? QStringLiteral("-") : windowClass,
-                                           folder.isEmpty() ? QStringLiteral("-") : folder,
-                                           landed.isEmpty() ? QStringLiteral("-") : landed, QString::fromLatin1(reason)
-                                       )
-  );
+  if (out.folder.isEmpty())
+    out.placed.failReason = QStringLiteral("no-folder");
+  else
+    out.placed = litekvm::placeReceivedFiles(paths, out.folder);
+  return out;
 }
 #endif
 
@@ -2178,15 +2169,28 @@ void MainWindow::finishRemoteDrag(const char *reason)
   // Clear the flag before the shell lookup. That call can pump COM messages
   // and re-enter this timer; a second copy would land the file twice.
   m_remoteDragActive = false;
+  const bool skipAppearGrace = m_remoteDragWait.skipAppearGrace();
+#if defined(Q_OS_WIN)
+  // Land first. Logging result=copy before the copy hid a refused folder
+  // behind landed=-.
+  const DragDropTarget dropped = copyDragUnderCursor(paths);
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("remote-drag"),
+      litekvm::remoteDragOutcomeDetail(
+          reason, paths.size(), skipAppearGrace, dropped.placed.landed, dropped.placed.failReason
+      )
+  );
+  litekvm::ClipboardFileBridge::traceStage(
+      QStringLiteral("drop-file"),
+      litekvm::dropFileTraceDetail(dropped.windowClass, dropped.folder, dropped.placed, reason)
+  );
+#else
   litekvm::ClipboardFileBridge::traceStage(
       QStringLiteral("remote-drag"), QStringLiteral("result=copy reason=%1 paths=%2 appear_grace=%3")
                                          .arg(QString::fromLatin1(reason))
                                          .arg(paths.size())
-                                         .arg(m_remoteDragWait.skipAppearGrace() ? 0 : 1)
+                                         .arg(skipAppearGrace ? 0 : 1)
   );
-#if defined(Q_OS_WIN)
-  copyDragUnderCursor(paths, reason);
-#else
   Q_UNUSED(paths)
 #endif
   if (m_edgeDrop != nullptr) {
