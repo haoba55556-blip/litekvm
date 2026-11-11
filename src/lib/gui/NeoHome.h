@@ -15,6 +15,8 @@ namespace deskflow::gui {
  * @brief Neomorphic LiteKVM home stage (scheme C).
  * Paints the signed-off main window. It does not own KVM sessions; MainWindow
  * wires the toggle, disconnect, and settings gear to the existing actions.
+ * Empty chrome and the header are a press-and-drag region that moves the
+ * frameless window. The same stage is the main window on the laptop and the desktop.
  */
 class NeoHome : public QWidget
 {
@@ -87,9 +89,11 @@ private:
   bool m_linked = false;
   bool m_disconnectEnabled = false;
   bool m_notice = false;
+  bool m_draggingWindow = false;
   QString m_statusText;
   Control m_pressed = Control::None;
   Control m_hover = Control::None;
+  QPoint m_dragOffset;
 
   QRect m_card;
   QRect m_wordmark;

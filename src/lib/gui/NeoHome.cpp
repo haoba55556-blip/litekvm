@@ -10,17 +10,33 @@
 #include <QPainterPath>
 #include <QWindow>
 
+#if defined(Q_OS_WIN)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+// clang-format off
+#include <windows.h>
+// clang-format on
+#endif
+
 namespace deskflow::gui {
 
 namespace {
 
-constexpr int kShadow = 16;
-constexpr int kRadius = 22;
-constexpr int kBorder = 8;
+// Shadow and corner radius track the two-thirds stage so the card, not only
+// the drawings, is the smaller window. The resize border stays wide enough to grab.
+constexpr int kShadow = 11;
+constexpr int kRadius = 15;
+constexpr int kBorder = 6;
 constexpr qreal kDesignW = 1248.0;
 constexpr qreal kDesignH = 688.0;
-// The signed-off devices read smaller than the first neomorphic pass.
-constexpr qreal kPicture = 2.0 / 3.0;
+// Design-pixel gap between 本机, 笔记本, and the 添加电脑 slot.
+// At the default 2/3 scale this is 120px. The previous row used a 70px arrow
+// slot and a 26px gap in front of the add slot.
+constexpr qreal kDeviceGap = 180.0;
 
 const QColor kPage(244, 235, 224);
 const QColor kRaised(253, 248, 242);
@@ -316,6 +332,32 @@ bool roundedContains(const QRect &rect, const QPoint &pos, int radius)
   return (dx * dx + dy * dy) <= qreal(radius) * qreal(radius);
 }
 
+// Runs the platform move loop while the left button is still down. Windows uses
+// a synchronous caption drag so a frameless, translucent window actually moves;
+// the posted startSystemMove path returns before Qt has finished the press.
+bool beginWindowMove(QWidget *top)
+{
+  if (!top)
+    return false;
+  QWindow *handle = top->windowHandle();
+  if (!handle)
+    return false;
+#if defined(Q_OS_WIN)
+  const auto hwnd = reinterpret_cast<HWND>(handle->winId());
+  if (!hwnd)
+    return false;
+  // Synchronous SC_DRAGMOVE. Qt's startSystemMove posts this and returns, and
+  // the frameless window then never picks the drag up. ReleaseCapture only
+  // drops this window's mouse grab so the system move loop can run; it is not
+  // a leave-screen capture.
+  ReleaseCapture();
+  SendMessage(hwnd, WM_SYSCOMMAND, 0xF012 /* SC_DRAGMOVE */, 0);
+  return true;
+#else
+  return handle->startSystemMove();
+#endif
+}
+
 } // namespace
 
 NeoHome::NeoHome(QWidget *parent) : QWidget(parent)
@@ -355,12 +397,14 @@ void NeoHome::setDisconnectEnabled(bool enabled)
 
 QSize NeoHome::sizeHint() const
 {
-  return {1280, 720};
+  // Two thirds of the previous 1280×720 home stage. 854×481 keeps the card
+  // inside the shadow at exactly 832×459, which is 2/3 of the 1248×688 design.
+  return {854, 481};
 }
 
 QSize NeoHome::minimumSizeHint() const
 {
-  return {1000, 600};
+  return {720, 420};
 }
 
 bool NeoHome::maximized() const
@@ -380,7 +424,7 @@ void NeoHome::layoutChrome()
   m_card = cardRect();
   const qreal sx = m_card.width() / kDesignW;
   const qreal sy = m_card.height() / kDesignH;
-  m_scale = qBound(0.72, qMin(sx, sy), 1.2);
+  m_scale = qBound(0.5, qMin(sx, sy), 1.2);
   const qreal s = m_scale;
   const int left = m_card.left();
   const int top = m_card.top();
@@ -397,16 +441,16 @@ void NeoHome::layoutChrome()
   const int gear = qRound(50 * s);
   m_gear = QRect(right - qRound(22 * s) - gear, m_close.bottom() + qRound(12 * s), gear, gear);
 
-  const int rowH = qRound(168 * kPicture * s);
-  const int monitorW = qRound(190 * kPicture * s);
-  const int monitorH = qRound(158 * kPicture * s);
-  const int arrowW = qRound(70 * s);
-  const int laptopW = qRound(214 * kPicture * s);
-  const int laptopH = qRound(148 * kPicture * s);
-  const int gap = qRound(26 * s);
-  const int addW = qRound(160 * kPicture * s);
-  const int addH = qRound(168 * kPicture * s);
-  const int clusterW = monitorW + arrowW + laptopW + gap + addW;
+  const int rowH = qRound(168 * s);
+  const int monitorW = qRound(190 * s);
+  const int monitorH = qRound(158 * s);
+  const int deviceGap = qRound(kDeviceGap * s);
+  const int arrowW = deviceGap;
+  const int laptopW = qRound(214 * s);
+  const int laptopH = qRound(148 * s);
+  const int addW = qRound(160 * s);
+  const int addH = qRound(168 * s);
+  const int clusterW = monitorW + arrowW + laptopW + deviceGap + addW;
   const int labelH = qRound(30 * s);
   const int statusH = qRound(48 * s);
   const int blockH = labelH + qRound(6 * s) + rowH + qRound(32 * s) + statusH;
@@ -420,7 +464,7 @@ void NeoHome::layoutChrome()
   m_monitor = QRect(clusterLeft, rowBottom - monitorH, monitorW, monitorH);
   m_arrow = QRect(m_monitor.right(), m_monitor.top(), arrowW, monitorH);
   m_laptop = QRect(m_arrow.right(), rowBottom - laptopH, laptopW, laptopH);
-  m_add = QRect(m_laptop.right() + gap, rowBottom - addH, addW, addH);
+  m_add = QRect(m_laptop.right() + deviceGap, rowBottom - addH, addW, addH);
 
   const QFont statusFont = uiFont(qRound(18 * s), QFont::Normal);
   const QFontMetrics metrics(statusFont);
@@ -460,33 +504,36 @@ NeoHome::FrameHit NeoHome::frameHitAt(const QPoint &pos)
   const int radius = full ? 0 : kRadius;
   if (!roundedContains(m_card, pos, radius))
     return FrameHit::Outside;
-  if (full)
-    return (pos.y() <= m_card.top() + qRound(52 * m_scale) && controlAt(pos) == Control::None) ? FrameHit::Caption
-                                                                                               : FrameHit::Client;
 
-  const bool left = pos.x() <= m_card.left() + kBorder;
-  const bool right = pos.x() >= m_card.right() - kBorder;
-  const bool top = pos.y() <= m_card.top() + kBorder;
-  const bool bottom = pos.y() >= m_card.bottom() - kBorder;
-  if (top && left)
-    return FrameHit::TopLeft;
-  if (top && right)
-    return FrameHit::TopRight;
-  if (bottom && left)
-    return FrameHit::BottomLeft;
-  if (bottom && right)
-    return FrameHit::BottomRight;
-  if (left)
-    return FrameHit::Left;
-  if (right)
-    return FrameHit::Right;
-  if (top)
-    return FrameHit::Top;
-  if (bottom)
-    return FrameHit::Bottom;
-  if (pos.y() <= m_card.top() + qRound(52 * m_scale) && controlAt(pos) == Control::None)
-    return FrameHit::Caption;
-  return FrameHit::Client;
+  if (!full) {
+    const bool left = pos.x() <= m_card.left() + kBorder;
+    const bool right = pos.x() >= m_card.right() - kBorder;
+    const bool top = pos.y() <= m_card.top() + kBorder;
+    const bool bottom = pos.y() >= m_card.bottom() - kBorder;
+    if (top && left)
+      return FrameHit::TopLeft;
+    if (top && right)
+      return FrameHit::TopRight;
+    if (bottom && left)
+      return FrameHit::BottomLeft;
+    if (bottom && right)
+      return FrameHit::BottomRight;
+    if (left)
+      return FrameHit::Left;
+    if (right)
+      return FrameHit::Right;
+    if (top)
+      return FrameHit::Top;
+    if (bottom)
+      return FrameHit::Bottom;
+  }
+
+  // Header, empty cream, and the non-interactive device art move the window.
+  // Buttons stay client area so the toggle, disconnect, gear, add slot, and
+  // caption buttons still click. The notice overlay keeps its own clicks.
+  if (m_notice || controlAt(pos) != Control::None || m_disconnect.contains(pos))
+    return FrameHit::Client;
+  return FrameHit::Caption;
 }
 
 NeoHome::Control NeoHome::controlAt(const QPoint &pos) const
@@ -686,9 +733,8 @@ void NeoHome::mousePressEvent(QMouseEvent *event)
   }
   layoutChrome();
   const QPoint pos = event->position().toPoint();
-#if !defined(Q_OS_WIN)
   const FrameHit frame = frameHitAt(pos);
-  if (auto *handle = window() ? window()->windowHandle() : nullptr) {
+  if (QWindow *handle = window() ? window()->windowHandle() : nullptr) {
     Qt::Edges edges;
     switch (frame) {
     case FrameHit::Left:
@@ -716,7 +762,12 @@ void NeoHome::mousePressEvent(QMouseEvent *event)
       edges = Qt::RightEdge | Qt::BottomEdge;
       break;
     case FrameHit::Caption:
-      handle->startSystemMove();
+      if (beginWindowMove(window()))
+        return;
+      if (QWidget *top = window()) {
+        m_draggingWindow = true;
+        m_dragOffset = event->globalPosition().toPoint() - top->frameGeometry().topLeft();
+      }
       return;
     default:
       break;
@@ -725,8 +776,13 @@ void NeoHome::mousePressEvent(QMouseEvent *event)
       handle->startSystemResize(edges);
       return;
     }
+  } else if (frame == FrameHit::Caption) {
+    if (QWidget *top = window()) {
+      m_draggingWindow = true;
+      m_dragOffset = event->globalPosition().toPoint() - top->frameGeometry().topLeft();
+    }
+    return;
   }
-#endif
   const Control hit = controlAt(pos);
   if (m_notice && hit != Control::NoticeOk && hit != Control::Min && hit != Control::Max && hit != Control::Close) {
     if (!m_noticeCard.contains(pos))
@@ -741,6 +797,11 @@ void NeoHome::mousePressEvent(QMouseEvent *event)
 
 void NeoHome::mouseMoveEvent(QMouseEvent *event)
 {
+  if (m_draggingWindow && (event->buttons() & Qt::LeftButton)) {
+    if (QWidget *top = window())
+      top->move(event->globalPosition().toPoint() - m_dragOffset);
+    return;
+  }
   layoutChrome();
   const Control hit = controlAt(event->position().toPoint());
   if (hit != m_hover) {
@@ -755,6 +816,10 @@ void NeoHome::mouseReleaseEvent(QMouseEvent *event)
     QWidget::mouseReleaseEvent(event);
     return;
   }
+  const bool wasDragging = m_draggingWindow;
+  m_draggingWindow = false;
+  if (wasDragging)
+    return;
   layoutChrome();
   const Control hit = controlAt(event->position().toPoint());
   const Control pressed = m_pressed;
@@ -796,15 +861,13 @@ void NeoHome::mouseReleaseEvent(QMouseEvent *event)
 
 void NeoHome::mouseDoubleClickEvent(QMouseEvent *event)
 {
-#if !defined(Q_OS_WIN)
   layoutChrome();
-  if (frameHitAt(event->position().toPoint()) == FrameHit::Caption) {
+  const QPoint pos = event->position().toPoint();
+  const bool header = pos.y() <= m_card.top() + qRound(52 * m_scale);
+  if (header && frameHitAt(pos) == FrameHit::Caption) {
     Q_EMIT maximizeRequested();
     return;
   }
-#else
-  Q_UNUSED(event);
-#endif
   QWidget::mouseDoubleClickEvent(event);
 }
 
@@ -812,6 +875,7 @@ void NeoHome::leaveEvent(QEvent *event)
 {
   m_hover = Control::None;
   m_pressed = Control::None;
+  m_draggingWindow = false;
   update();
   QWidget::leaveEvent(event);
 }
