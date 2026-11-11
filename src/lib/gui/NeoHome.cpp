@@ -19,13 +19,18 @@ constexpr int kRadius = 22;
 constexpr int kBorder = 8;
 constexpr qreal kDesignW = 1248.0;
 constexpr qreal kDesignH = 688.0;
+// The signed-off devices read smaller than the first neomorphic pass.
+constexpr qreal kPicture = 2.0 / 3.0;
 
-const QColor kCream(243, 238, 230);
-const QColor kCreamDeep(232, 224, 212);
-const QColor kFace(248, 244, 237);
+const QColor kPage(244, 235, 224);
+const QColor kRaised(253, 248, 242);
+const QColor kWell(214, 198, 178);
+const QColor kInk(156, 134, 110);
+const QColor kInkShadow(98, 76, 56);
+const QColor kInkLight(255, 252, 247);
 const QColor kBlue(59, 124, 245);
-const QColor kDash(206, 194, 176);
-const QColor kChrome(158, 148, 134);
+const QColor kDash(168, 146, 122);
+const QColor kChrome(146, 126, 104);
 
 QFont uiFont(int pixel, QFont::Weight weight, qreal spacing = 0.0)
 {
@@ -45,27 +50,40 @@ QFont uiFont(int pixel, QFont::Weight weight, qreal spacing = 0.0)
 void drawEmbossedText(QPainter &painter, const QRectF &rect, const QString &text, const QFont &font, int flags)
 {
   painter.setFont(font);
-  painter.setPen(QColor(156, 138, 114, 120));
-  painter.drawText(rect.translated(0.7, 1.25), flags, text);
-  painter.setPen(QColor(255, 253, 249, 230));
-  painter.drawText(rect.translated(-0.7, -0.8), flags, text);
-  painter.setPen(kFace);
+  const qreal px = font.pixelSize() > 0 ? font.pixelSize() : 16.0;
+  const qreal offset = qBound(1.05, px * 0.072, 2.15);
+  painter.setPen(QColor(kInkShadow.red(), kInkShadow.green(), kInkShadow.blue(), 72));
+  painter.drawText(rect.translated(offset * 1.05, offset * 1.45), flags, text);
+  painter.setPen(QColor(kInkShadow.red(), kInkShadow.green(), kInkShadow.blue(), 168));
+  painter.drawText(rect.translated(offset * 0.42, offset * 0.62), flags, text);
+  painter.setPen(QColor(kInkLight.red(), kInkLight.green(), kInkLight.blue(), 235));
+  painter.drawText(rect.translated(-offset * 0.7, -offset * 0.88), flags, text);
+  painter.setPen(kInk);
   painter.drawText(rect, flags, text);
 }
 
-void paintSoftShadow(QPainter &painter, const QRectF &rect, qreal radius, qreal depth, bool light)
+void paintCastShadow(QPainter &painter, const QRectF &rect, qreal radius, qreal depth)
 {
-  const int layers = light ? 5 : 8;
-  for (int i = layers; i >= 1; --i) {
-    const qreal grow = i * (light ? 0.42 : 0.55) * depth;
-    QColor color = light ? QColor(255, 255, 255, 14 + (layers - i) * 8) : QColor(148, 128, 104, 7 + (layers - i) * 4);
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(color);
-    const qreal dx = light ? -0.9 : 1.4;
-    const qreal dy = light ? -0.9 : 1.8;
+  painter.setPen(Qt::NoPen);
+  for (int i = 11; i >= 1; --i) {
+    const qreal spread = i * 1.05 * depth;
+    const int alpha = 3 + (11 - i) * 5;
+    painter.setBrush(QColor(108, 82, 58, alpha));
+    const qreal dx = 1.55 * depth;
+    const qreal dy = 2.15 * depth;
     painter.drawRoundedRect(
-        rect.adjusted(-grow + dx, -grow + dy, grow * (light ? 0.25 : 1.0) + dx, grow * (light ? 0.2 : 1.05) + dy),
-        radius + grow * 0.35, radius + grow * 0.35
+        rect.adjusted(dx * 0.15, dy * 0.2, spread * 0.95 + dx, spread * 1.2 + dy), radius + spread * 0.22,
+        radius + spread * 0.22
+    );
+  }
+  for (int i = 7; i >= 1; --i) {
+    const qreal spread = i * 0.72 * depth;
+    const int alpha = 12 + (7 - i) * 12;
+    painter.setBrush(QColor(255, 253, 248, alpha));
+    const qreal dx = -1.25 * depth;
+    const qreal dy = -1.35 * depth;
+    painter.drawRoundedRect(
+        rect.adjusted(-spread + dx, -spread + dy, dx * 0.15, dy * 0.1), radius + spread * 0.2, radius + spread * 0.2
     );
   }
 }
@@ -73,107 +91,135 @@ void paintSoftShadow(QPainter &painter, const QRectF &rect, qreal radius, qreal 
 void paintRaised(QPainter &painter, const QRectF &rect, qreal radius, bool pressed, qreal depth)
 {
   painter.setPen(Qt::NoPen);
-  if (!pressed) {
-    paintSoftShadow(painter, rect, radius, depth, false);
-    paintSoftShadow(painter, rect, radius, depth * 0.8, true);
-  }
-  painter.setBrush(kCream);
+  if (!pressed)
+    paintCastShadow(painter, rect, radius, depth);
+  painter.setBrush(pressed ? QColor(236, 226, 214) : kRaised);
   painter.drawRoundedRect(rect, radius, radius);
 
   painter.save();
   QPainterPath clip;
   clip.addRoundedRect(rect, radius, radius);
   painter.setClipPath(clip);
-  QLinearGradient sheen(rect.topLeft(), QPointF(rect.left(), rect.top() + rect.height() * 0.55));
-  sheen.setColorAt(0.0, QColor(255, 255, 255, pressed ? 18 : 78));
+  QLinearGradient sheen(rect.topLeft(), QPointF(rect.left(), rect.top() + rect.height() * 0.48));
+  sheen.setColorAt(0.0, QColor(255, 255, 255, pressed ? 26 : 128));
   sheen.setColorAt(1.0, QColor(255, 255, 255, 0));
   painter.fillRect(rect, sheen);
+  QLinearGradient shade(QPointF(rect.left(), rect.bottom() - rect.height() * 0.34), rect.bottomLeft());
+  shade.setColorAt(0.0, QColor(160, 132, 102, 0));
+  shade.setColorAt(1.0, QColor(148, 118, 88, pressed ? 70 : 42));
+  painter.fillRect(rect, shade);
   if (pressed) {
-    QLinearGradient inset(rect.topLeft(), QPointF(rect.left(), rect.top() + 16.0));
-    inset.setColorAt(0.0, QColor(160, 140, 116, 80));
-    inset.setColorAt(1.0, QColor(160, 140, 116, 0));
+    QLinearGradient inset(rect.topLeft(), QPointF(rect.left(), rect.top() + qMax(12.0, rect.height() * 0.45)));
+    inset.setColorAt(0.0, QColor(120, 96, 72, 90));
+    inset.setColorAt(1.0, QColor(120, 96, 72, 0));
     painter.fillRect(rect, inset);
   }
   painter.restore();
+
+  QLinearGradient rim(rect.topLeft(), rect.bottomRight());
+  rim.setColorAt(0.0, QColor(255, 255, 255, pressed ? 70 : 220));
+  rim.setColorAt(0.38, QColor(255, 252, 247, 40));
+  rim.setColorAt(1.0, QColor(132, 106, 80, pressed ? 50 : 130));
+  painter.setBrush(Qt::NoBrush);
+  painter.setPen(QPen(QBrush(rim), qMax(1.05, qMin(rect.width(), rect.height()) * 0.035)));
+  const qreal inset = 0.7;
+  painter.drawRoundedRect(
+      rect.adjusted(inset, inset, -inset, -inset), qMax(1.0, radius - inset), qMax(1.0, radius - inset)
+  );
 }
 
 void paintScreen(QPainter &painter, const QRectF &screen)
 {
+  const qreal radius = qMax(4.0, qMin(screen.width(), screen.height()) * 0.09);
   QLinearGradient glass(screen.topLeft(), screen.bottomRight());
-  glass.setColorAt(0.0, QColor(255, 255, 255, 245));
-  glass.setColorAt(0.42, QColor(244, 239, 230));
-  glass.setColorAt(1.0, QColor(214, 204, 188));
+  glass.setColorAt(0.0, QColor(255, 254, 251));
+  glass.setColorAt(0.34, QColor(232, 222, 208));
+  glass.setColorAt(1.0, QColor(176, 158, 136));
   painter.setPen(Qt::NoPen);
   painter.setBrush(glass);
-  painter.drawRoundedRect(screen, 7, 7);
+  painter.drawRoundedRect(screen, radius, radius);
 
   painter.save();
   QPainterPath clip;
-  clip.addRoundedRect(screen, 7, 7);
+  clip.addRoundedRect(screen, radius, radius);
   painter.setClipPath(clip);
-  QLinearGradient gloss(screen.topLeft(), screen.bottomLeft());
-  gloss.setColorAt(0.0, QColor(255, 255, 255, 150));
-  gloss.setColorAt(0.38, QColor(255, 255, 255, 0));
+  QLinearGradient gloss(screen.topLeft(), QPointF(screen.left(), screen.top() + screen.height() * 0.46));
+  gloss.setColorAt(0.0, QColor(255, 255, 255, 210));
+  gloss.setColorAt(0.55, QColor(255, 255, 255, 24));
+  gloss.setColorAt(1.0, QColor(255, 255, 255, 0));
   painter.fillRect(screen, gloss);
   QLinearGradient shade(screen.topRight(), screen.bottomRight());
-  shade.setColorAt(0.55, QColor(180, 164, 142, 0));
-  shade.setColorAt(1.0, QColor(170, 152, 128, 55));
+  shade.setColorAt(0.45, QColor(140, 112, 84, 0));
+  shade.setColorAt(1.0, QColor(120, 92, 64, 80));
   painter.fillRect(screen, shade);
   painter.restore();
+
+  painter.setBrush(Qt::NoBrush);
+  painter.setPen(QPen(QColor(150, 126, 100, 160), qMax(1.0, screen.height() * 0.018)));
+  painter.drawRoundedRect(screen.adjusted(0.4, 0.4, -0.4, -0.4), radius, radius);
 }
 
 void paintMonitor(QPainter &painter, const QRectF &box)
 {
-  const QRectF bezel(box.left(), box.top(), box.width(), box.height() * 0.74);
-  paintRaised(painter, bezel, 16, false, 1.15);
-  paintScreen(painter, bezel.adjusted(12, 11, -12, -20));
+  const qreal unit = qMin(box.width() / 127.0, box.height() / 105.0);
+  const QRectF bezel(box.left(), box.top(), box.width(), box.height() * 0.72);
+  paintRaised(painter, bezel, 11.0 * unit, false, 1.45);
+  paintScreen(painter, bezel.adjusted(8.0 * unit, 7.0 * unit, -8.0 * unit, -15.0 * unit));
 
+  const QRectF dot(bezel.center().x() - 2.5 * unit, bezel.bottom() - 11.0 * unit, 5.0 * unit, 5.0 * unit);
   painter.setPen(Qt::NoPen);
-  painter.setBrush(QColor(214, 204, 190));
-  painter.drawEllipse(QRectF(bezel.center().x() - 3.2, bezel.bottom() - 14.0, 6.4, 6.4));
+  painter.setBrush(QColor(120, 98, 76, 90));
+  painter.drawEllipse(dot.translated(0.4 * unit, 0.6 * unit));
+  painter.setBrush(QColor(176, 156, 134));
+  painter.drawEllipse(dot);
+  painter.setBrush(kInkLight);
+  painter.drawEllipse(QRectF(dot.left() + 1.1 * unit, dot.top() + 0.8 * unit, 1.6 * unit, 1.6 * unit));
 
-  const QRectF neck(box.center().x() - 8.0, bezel.bottom() - 2.0, 16.0, box.height() * 0.13);
-  paintRaised(painter, neck, 3.0, false, 0.45);
-  const QRectF foot(box.center().x() - box.width() * 0.22, neck.bottom() - 3.0, box.width() * 0.44, 11.0);
-  paintRaised(painter, foot, 5.0, false, 0.7);
+  const QRectF neck(box.center().x() - 6.0 * unit, bezel.bottom() - unit, 12.0 * unit, box.height() * 0.15);
+  paintRaised(painter, neck, 2.4 * unit, false, 0.6);
+  const QRectF foot(box.center().x() - box.width() * 0.24, neck.bottom() - 2.0 * unit, box.width() * 0.48, 7.5 * unit);
+  paintRaised(painter, foot, 3.6 * unit, false, 1.05);
 }
 
 void paintLaptop(QPainter &painter, const QRectF &box)
 {
-  const QRectF screen(box.left() + box.width() * 0.06, box.top(), box.width() * 0.88, box.height() * 0.70);
-  paintRaised(painter, screen, 12, false, 1.05);
-  paintScreen(painter, screen.adjusted(10, 9, -10, -12));
+  const qreal unit = qMin(box.width() / 143.0, box.height() / 99.0);
+  const QRectF screen(box.left() + box.width() * 0.08, box.top(), box.width() * 0.84, box.height() * 0.66);
+  paintRaised(painter, screen, 8.0 * unit, false, 1.35);
+  paintScreen(painter, screen.adjusted(6.5 * unit, 5.5 * unit, -6.5 * unit, -8.5 * unit));
 
-  const QRectF base(box.left(), screen.bottom() - 6.0, box.width(), box.height() * 0.20);
-  paintRaised(painter, base, 8, false, 0.85);
-  painter.setPen(QPen(QColor(186, 172, 152, 140), 1.15));
-  painter.drawLine(QPointF(base.left() + 10.0, base.top() + 1.0), QPointF(base.right() - 10.0, base.top() + 1.0));
+  const QRectF base(box.left(), screen.bottom() - 3.5 * unit, box.width(), box.height() * 0.24);
+  paintRaised(painter, base, 5.5 * unit, false, 1.15);
+  painter.setPen(QPen(QColor(255, 252, 247, 180), qMax(1.0, 1.1 * unit)));
+  painter.drawLine(
+      QPointF(base.left() + 8.0 * unit, base.top() + 0.4 * unit),
+      QPointF(base.right() - 8.0 * unit, base.top() + 0.4 * unit)
+  );
+  painter.setPen(QPen(QColor(150, 126, 102, 170), qMax(1.0, 1.05 * unit)));
+  painter.drawLine(
+      QPointF(base.left() + 8.0 * unit, base.top() + 1.5 * unit),
+      QPointF(base.right() - 8.0 * unit, base.top() + 1.5 * unit)
+  );
 }
 
 void paintArrow(QPainter &painter, const QRectF &rect)
 {
   const qreal y = rect.center().y();
-  const qreal x0 = rect.left() + 6.0;
-  const qreal x1 = rect.right() - 6.0;
-  const QColor ink(196, 184, 166);
-  auto head = [&](qreal tipX, qreal dir) {
-    QPainterPath path;
-    path.moveTo(tipX, y);
-    path.lineTo(tipX - dir * 8.0, y - 4.2);
-    path.moveTo(tipX, y);
-    path.lineTo(tipX - dir * 8.0, y + 4.2);
-    return path;
+  const qreal x0 = rect.left() + 4.0;
+  const qreal x1 = rect.right() - 4.0;
+  auto stroke = [&](const QColor &color, qreal dy, qreal width) {
+    painter.setBrush(Qt::NoBrush);
+    painter.setPen(QPen(color, width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.drawLine(QPointF(x0, y + dy), QPointF(x1, y + dy));
+    const qreal wing = 7.2;
+    painter.drawLine(QPointF(x0, y + dy), QPointF(x0 + wing, y + dy - 3.8));
+    painter.drawLine(QPointF(x0, y + dy), QPointF(x0 + wing, y + dy + 3.8));
+    painter.drawLine(QPointF(x1, y + dy), QPointF(x1 - wing, y + dy - 3.8));
+    painter.drawLine(QPointF(x1, y + dy), QPointF(x1 - wing, y + dy + 3.8));
   };
-
-  painter.setBrush(Qt::NoBrush);
-  painter.setPen(QPen(QColor(255, 255, 255, 200), 1.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-  painter.drawLine(QPointF(x0, y - 0.7), QPointF(x1, y - 0.7));
-  painter.drawPath(head(x0, -1.0));
-  painter.drawPath(head(x1, 1.0));
-  painter.setPen(QPen(ink, 1.35, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-  painter.drawLine(QPointF(x0, y), QPointF(x1, y));
-  painter.drawPath(head(x0, -1.0));
-  painter.drawPath(head(x1, 1.0));
+  stroke(QColor(255, 252, 247, 220), -1.15, 1.7);
+  stroke(QColor(110, 86, 64, 100), 1.35, 1.8);
+  stroke(QColor(146, 122, 96), 0.0, 1.65);
 }
 
 enum class ControlGlyph
@@ -184,8 +230,10 @@ enum class ControlGlyph
   Close
 };
 
-void paintGear(QPainter &painter, const QPointF &center)
+void paintGear(QPainter &painter, const QRectF &bounds)
 {
+  const QPointF center = bounds.center();
+  const qreal unit = bounds.width() / 50.0;
   auto draw = [&](const QColor &color, const QPointF &offset) {
     painter.save();
     painter.translate(center + offset);
@@ -193,46 +241,53 @@ void paintGear(QPainter &painter, const QPointF &center)
     painter.setBrush(color);
     for (int i = 0; i < 8; ++i) {
       painter.rotate(45.0);
-      painter.drawRoundedRect(QRectF(-2.7, -15.2, 5.4, 6.2), 1.4, 1.4);
+      painter.drawRoundedRect(QRectF(-2.3 * unit, -13.6 * unit, 4.6 * unit, 5.4 * unit), 1.2 * unit, 1.2 * unit);
     }
-    painter.drawEllipse(QPointF(0, 0), 8.4, 8.4);
+    painter.drawEllipse(QPointF(0, 0), 7.4 * unit, 7.4 * unit);
     painter.restore();
   };
-  draw(QColor(160, 142, 118, 90), QPointF(0.8, 1.1));
-  draw(kFace, QPointF(0, 0));
+  draw(QColor(kInkShadow.red(), kInkShadow.green(), kInkShadow.blue(), 130), QPointF(1.15 * unit, 1.45 * unit));
+  draw(QColor(255, 252, 247, 210), QPointF(-0.85 * unit, -1.0 * unit));
+  draw(QColor(176, 156, 134), QPointF(0, 0));
   painter.setPen(Qt::NoPen);
-  painter.setBrush(kCream);
-  painter.drawEllipse(QRectF(center.x() - 3.6, center.y() - 3.6, 7.2, 7.2));
+  painter.setBrush(QColor(140, 116, 92, 70));
+  painter.drawEllipse(QRectF(center.x() - 3.2 * unit, center.y() - 2.6 * unit, 6.4 * unit, 5.4 * unit));
+  painter.setBrush(kRaised);
+  painter.drawEllipse(QRectF(center.x() - 2.7 * unit, center.y() - 2.7 * unit, 5.4 * unit, 5.4 * unit));
 }
 
 void paintWindowGlyph(QPainter &painter, ControlGlyph glyph, const QRectF &rect, bool hovered)
 {
   if (hovered) {
     painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor(255, 255, 255, 110));
-    painter.drawEllipse(rect.adjusted(5, 4, -5, -4));
+    painter.setBrush(QColor(255, 255, 255, 140));
+    painter.drawEllipse(rect.adjusted(4, 3, -4, -3));
   }
-  painter.setPen(QPen(kChrome, 1.45, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-  painter.setBrush(Qt::NoBrush);
   const QPointF c = rect.center();
-  if (glyph == ControlGlyph::Min) {
-    painter.drawLine(QPointF(c.x() - 6.0, c.y() + 1.0), QPointF(c.x() + 6.0, c.y() + 1.0));
-    return;
-  }
-  if (glyph == ControlGlyph::Close) {
-    painter.drawLine(QPointF(c.x() - 5.2, c.y() - 5.2), QPointF(c.x() + 5.2, c.y() + 5.2));
-    painter.drawLine(QPointF(c.x() + 5.2, c.y() - 5.2), QPointF(c.x() - 5.2, c.y() + 5.2));
-    return;
-  }
-  if (glyph == ControlGlyph::Restore) {
-    painter.drawRoundedRect(QRectF(c.x() - 6.2, c.y() - 3.2, 8.2, 8.2), 1.4, 1.4);
-    painter.drawLine(QPointF(c.x() - 2.4, c.y() - 3.2), QPointF(c.x() - 2.4, c.y() - 6.0));
-    painter.drawLine(QPointF(c.x() - 2.4, c.y() - 6.0), QPointF(c.x() + 6.0, c.y() - 6.0));
-    painter.drawLine(QPointF(c.x() + 6.0, c.y() - 6.0), QPointF(c.x() + 6.0, c.y() + 2.2));
-    painter.drawLine(QPointF(c.x() + 6.0, c.y() + 2.2), QPointF(c.x() + 2.0, c.y() + 2.2));
-    return;
-  }
-  painter.drawRoundedRect(QRectF(c.x() - 5.5, c.y() - 5.5, 11.0, 11.0), 1.6, 1.6);
+  auto stroke = [&](const QColor &color, const QPointF &shift, qreal width) {
+    painter.save();
+    painter.translate(shift);
+    painter.setPen(QPen(color, width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    painter.setBrush(Qt::NoBrush);
+    if (glyph == ControlGlyph::Min) {
+      painter.drawLine(QPointF(c.x() - 6.0, c.y() + 1.0), QPointF(c.x() + 6.0, c.y() + 1.0));
+    } else if (glyph == ControlGlyph::Close) {
+      painter.drawLine(QPointF(c.x() - 5.2, c.y() - 5.2), QPointF(c.x() + 5.2, c.y() + 5.2));
+      painter.drawLine(QPointF(c.x() + 5.2, c.y() - 5.2), QPointF(c.x() - 5.2, c.y() + 5.2));
+    } else if (glyph == ControlGlyph::Restore) {
+      painter.drawRoundedRect(QRectF(c.x() - 6.2, c.y() - 3.2, 8.2, 8.2), 1.4, 1.4);
+      painter.drawLine(QPointF(c.x() - 2.4, c.y() - 3.2), QPointF(c.x() - 2.4, c.y() - 6.0));
+      painter.drawLine(QPointF(c.x() - 2.4, c.y() - 6.0), QPointF(c.x() + 6.0, c.y() - 6.0));
+      painter.drawLine(QPointF(c.x() + 6.0, c.y() - 6.0), QPointF(c.x() + 6.0, c.y() + 2.2));
+      painter.drawLine(QPointF(c.x() + 6.0, c.y() + 2.2), QPointF(c.x() + 2.0, c.y() + 2.2));
+    } else {
+      painter.drawRoundedRect(QRectF(c.x() - 5.5, c.y() - 5.5, 11.0, 11.0), 1.6, 1.6);
+    }
+    painter.restore();
+  };
+  stroke(QColor(kInkShadow.red(), kInkShadow.green(), kInkShadow.blue(), 120), QPointF(0.9, 1.15), 1.5);
+  stroke(QColor(255, 252, 247, 210), QPointF(-0.7, -0.85), 1.55);
+  stroke(kChrome, QPointF(0, 0), 1.5);
 }
 
 bool roundedContains(const QRect &rect, const QPoint &pos, int radius)
@@ -342,15 +397,15 @@ void NeoHome::layoutChrome()
   const int gear = qRound(50 * s);
   m_gear = QRect(right - qRound(22 * s) - gear, m_close.bottom() + qRound(12 * s), gear, gear);
 
-  const int rowH = qRound(168 * s);
-  const int monitorW = qRound(190 * s);
-  const int monitorH = qRound(158 * s);
-  const int arrowW = qRound(78 * s);
-  const int laptopW = qRound(214 * s);
-  const int laptopH = qRound(148 * s);
-  const int gap = qRound(32 * s);
-  const int addW = qRound(160 * s);
-  const int addH = qRound(168 * s);
+  const int rowH = qRound(168 * kPicture * s);
+  const int monitorW = qRound(190 * kPicture * s);
+  const int monitorH = qRound(158 * kPicture * s);
+  const int arrowW = qRound(70 * s);
+  const int laptopW = qRound(214 * kPicture * s);
+  const int laptopH = qRound(148 * kPicture * s);
+  const int gap = qRound(26 * s);
+  const int addW = qRound(160 * kPicture * s);
+  const int addH = qRound(168 * kPicture * s);
   const int clusterW = monitorW + arrowW + laptopW + gap + addW;
   const int labelH = qRound(30 * s);
   const int statusH = qRound(48 * s);
@@ -477,16 +532,16 @@ void NeoHome::paintEvent(QPaintEvent *)
   const QRectF card = m_card;
   const qreal radius = maximized() ? 0.0 : kRadius;
   if (!maximized()) {
-    for (int i = 14; i >= 1; --i) {
-      QColor shadow(120, 98, 72, 5 + (14 - i));
+    for (int i = 16; i >= 1; --i) {
+      QColor shadow(112, 86, 60, 6 + (16 - i) * 2);
       painter.setPen(Qt::NoPen);
       painter.setBrush(shadow);
-      const qreal grow = i * 0.85;
-      painter.drawRoundedRect(card.adjusted(-grow * 0.15, grow * 0.15, grow * 0.45, grow * 0.85), radius, radius);
+      const qreal grow = i * 0.9;
+      painter.drawRoundedRect(card.adjusted(-grow * 0.12, grow * 0.2, grow * 0.5, grow * 0.95), radius, radius);
     }
   }
   painter.setPen(Qt::NoPen);
-  painter.setBrush(kCream);
+  painter.setBrush(kPage);
   painter.drawRoundedRect(card, radius, radius);
 
   const qreal s = m_scale;
@@ -511,28 +566,45 @@ void NeoHome::paintEvent(QPaintEvent *)
   paintArrow(painter, QRectF(m_arrow).adjusted(8, m_arrow.height() * 0.28, -8, -m_arrow.height() * 0.42));
   paintLaptop(painter, m_laptop);
 
-  painter.setBrush(Qt::NoBrush);
-  painter.setPen(QPen(kDash, 1.5, Qt::DashLine, Qt::RoundCap, Qt::RoundJoin));
-  painter.drawRoundedRect(QRectF(m_add).adjusted(1, 1, -1, -1), 16, 16);
-  const QRectF plusCircle(
-      m_add.center().x() - qRound(23 * s), m_add.top() + qRound(36 * s), qRound(46 * s), qRound(46 * s)
-  );
-  paintRaised(painter, plusCircle, plusCircle.width() / 2.0, m_pressed == Control::Add, 0.8);
+  const QRectF addBox = QRectF(m_add).adjusted(1, 1, -1, -1);
+  paintCastShadow(painter, addBox, 14, 0.85);
+  auto dash = [&](const QColor &color, const QPointF &shift, qreal width) {
+    painter.save();
+    painter.translate(shift);
+    QPen pen(color, width, Qt::CustomDashLine, Qt::RoundCap, Qt::RoundJoin);
+    pen.setDashPattern({2.4, 2.1});
+    painter.setPen(pen);
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRoundedRect(addBox, 14, 14);
+    painter.restore();
+  };
+  dash(QColor(255, 252, 247, 210), QPointF(-0.8, -0.9), qMax(1.35, 1.55 * s));
+  dash(QColor(kInkShadow.red(), kInkShadow.green(), kInkShadow.blue(), 110), QPointF(0.7, 0.95), qMax(1.35, 1.55 * s));
+  dash(kDash, QPointF(0, 0), qMax(1.35, 1.6 * s));
+  const qreal plusD = m_add.height() * 0.30;
+  const QRectF plusCircle(m_add.center().x() - plusD / 2.0, m_add.top() + m_add.height() * 0.20, plusD, plusD);
+  paintRaised(painter, plusCircle, plusCircle.width() / 2.0, m_pressed == Control::Add, 0.95);
   painter.setPen(Qt::NoPen);
   const QPointF plusCenter = plusCircle.center();
-  const qreal arm = qRound(8 * s);
-  const qreal thick = qMax(2.0, 2.4 * s);
-  painter.setBrush(QColor(168, 154, 134, 90));
-  painter.drawRoundedRect(QRectF(plusCenter.x() - thick / 2 + 0.6, plusCenter.y() - arm + 0.8, thick, arm * 2), 1, 1);
-  painter.drawRoundedRect(QRectF(plusCenter.x() - arm + 0.6, plusCenter.y() - thick / 2 + 0.8, arm * 2, thick), 1, 1);
-  painter.setBrush(kFace);
-  painter.drawRoundedRect(QRectF(plusCenter.x() - thick / 2, plusCenter.y() - arm, thick, arm * 2), 1.1, 1.1);
-  painter.drawRoundedRect(QRectF(plusCenter.x() - arm, plusCenter.y() - thick / 2, arm * 2, thick), 1.1, 1.1);
+  const qreal arm = plusD * 0.18;
+  const qreal thick = qMax(2.0, plusD * 0.075);
+  auto plusBar = [&](const QColor &color, const QPointF &shift) {
+    painter.setBrush(color);
+    painter.drawRoundedRect(
+        QRectF(plusCenter.x() - thick / 2 + shift.x(), plusCenter.y() - arm + shift.y(), thick, arm * 2), 1.1, 1.1
+    );
+    painter.drawRoundedRect(
+        QRectF(plusCenter.x() - arm + shift.x(), plusCenter.y() - thick / 2 + shift.y(), arm * 2, thick), 1.1, 1.1
+    );
+  };
+  plusBar(QColor(kInkShadow.red(), kInkShadow.green(), kInkShadow.blue(), 140), QPointF(0.7, 0.9));
+  plusBar(QColor(255, 252, 247, 220), QPointF(-0.55, -0.7));
+  plusBar(QColor(176, 154, 130), QPointF(0, 0));
   const QRect addLabel(m_add.left() + 8, int(plusCircle.bottom()) + qRound(8 * s), m_add.width() - 16, qRound(28 * s));
   drawEmbossedText(painter, addLabel, tr("添加电脑"), labelFont, Qt::AlignHCenter | Qt::AlignTop);
 
-  paintRaised(painter, m_gear, m_gear.width() / 2.0, m_pressed == Control::Gear, 0.9);
-  paintGear(painter, m_gear.center());
+  paintRaised(painter, m_gear, m_gear.width() / 2.0, m_pressed == Control::Gear, 1.15);
+  paintGear(painter, m_gear);
 
   if (m_autoOn) {
     QLinearGradient blue(m_toggle.topLeft(), m_toggle.bottomLeft());
@@ -541,43 +613,47 @@ void NeoHome::paintEvent(QPaintEvent *)
     painter.setPen(Qt::NoPen);
     painter.setBrush(blue);
     painter.drawRoundedRect(m_toggle, m_toggle.height() / 2.0, m_toggle.height() / 2.0);
+    painter.setPen(QPen(QColor(255, 255, 255, 90), 1.0));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRoundedRect(
+        QRectF(m_toggle).adjusted(1.0, 1.0, -1.0, -1.2), m_toggle.height() / 2.0, m_toggle.height() / 2.0
+    );
   } else {
     painter.setPen(Qt::NoPen);
-    painter.setBrush(kCreamDeep);
+    painter.setBrush(kWell);
     painter.drawRoundedRect(m_toggle, m_toggle.height() / 2.0, m_toggle.height() / 2.0);
     painter.save();
     QPainterPath track;
     track.addRoundedRect(m_toggle, m_toggle.height() / 2.0, m_toggle.height() / 2.0);
     painter.setClipPath(track);
-    QLinearGradient inset(m_toggle.topLeft(), QPointF(m_toggle.left(), m_toggle.top() + 10));
-    inset.setColorAt(0.0, QColor(160, 142, 118, 70));
-    inset.setColorAt(1.0, QColor(160, 142, 118, 0));
+    QLinearGradient inset(m_toggle.topLeft(), QPointF(m_toggle.left(), m_toggle.top() + m_toggle.height() * 0.55));
+    inset.setColorAt(0.0, QColor(110, 86, 62, 110));
+    inset.setColorAt(1.0, QColor(110, 86, 62, 0));
     painter.fillRect(m_toggle, inset);
     painter.restore();
   }
   const qreal knobD = m_toggle.height() - qRound(6 * s);
   const qreal knobX = m_autoOn ? m_toggle.right() - knobD - qRound(3 * s) : m_toggle.left() + qRound(3 * s);
   const QRectF knob(knobX, m_toggle.top() + (m_toggle.height() - knobD) / 2.0, knobD, knobD);
-  painter.setBrush(QColor(160, 145, 125, 50));
-  painter.drawEllipse(knob.translated(0.4, 1.0));
+  painter.setPen(Qt::NoPen);
+  painter.setBrush(QColor(120, 96, 72, 80));
+  painter.drawEllipse(knob.translated(0.5, 1.3));
   painter.setBrush(QColor(255, 253, 250));
   painter.drawEllipse(knob);
+  painter.setBrush(QColor(255, 255, 255, 180));
+  painter.drawEllipse(knob.adjusted(knobD * 0.22, knobD * 0.16, -knobD * 0.48, -knobD * 0.55));
 
   drawEmbossedText(painter, m_status, m_statusText, labelFont, Qt::AlignVCenter | Qt::AlignLeft);
   if (m_linked) {
     painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(90, 70, 50, 55));
+    painter.drawEllipse(QRectF(m_dot).adjusted(-0.6, 0.5, 1.0, 1.8));
     painter.setBrush(kBlue);
     painter.drawEllipse(m_dot);
   }
 
-  const bool disconnectPressed = m_pressed == Control::Disconnect;
-  if (m_disconnectEnabled)
-    paintRaised(painter, m_disconnect, 12, disconnectPressed, 0.85);
-  else {
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(kCream);
-    painter.drawRoundedRect(m_disconnect, 12, 12);
-  }
+  const bool disconnectPressed = m_pressed == Control::Disconnect && m_disconnectEnabled;
+  paintRaised(painter, m_disconnect, qMax(10.0, 12.0 * s), disconnectPressed, m_disconnectEnabled ? 1.05 : 0.55);
   drawEmbossedText(painter, m_disconnect, tr("断开"), labelFont, Qt::AlignCenter);
 
   if (!m_notice)
