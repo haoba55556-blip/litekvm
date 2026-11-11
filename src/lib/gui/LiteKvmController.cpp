@@ -28,6 +28,12 @@ namespace {
 class ClipFileThread : public QThread
 {
 public:
+  // QThread's parent constructor is not inherited. The controller owns this
+  // thread, so the parent pointer has to be forwarded explicitly.
+  explicit ClipFileThread(QObject *parent = nullptr) : QThread(parent)
+  {
+  }
+
   litekvm::ClipFileService *service = nullptr;
   QSemaphore ready;
 
