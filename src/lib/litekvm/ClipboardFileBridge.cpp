@@ -29,6 +29,8 @@
 #include <QGuiApplication>
 #include <QImage>
 #include <QMimeData>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
@@ -310,6 +312,9 @@ void ClipboardFileBridge::traceStage(const QString &stage, const QString &detail
 {
   const QString message = QStringLiteral("litekvm-drag %1 %2").arg(stage, detail);
   qInfo().noquote() << message;
+  // The 25903 worker and the GUI both append. One line at a time.
+  static QMutex mutex;
+  QMutexLocker lock(&mutex);
   // Unit tests run offscreen and must not append to the developer's log file.
   if (qEnvironmentVariable("QT_QPA_PLATFORM") == QLatin1String("offscreen"))
     return;

@@ -8,9 +8,11 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMutexLocker>
 
 namespace litekvm {
 
@@ -63,6 +65,7 @@ TrustStore::TrustStore(const QString &filePath) : m_path(filePath.isEmpty() ? de
 
 bool TrustStore::load()
 {
+  QMutexLocker lock(&m_mutex);
   m_entries.clear();
   QFile f(m_path);
   if (!f.exists() || !f.open(QIODevice::ReadOnly))
@@ -77,6 +80,12 @@ bool TrustStore::load()
 }
 
 bool TrustStore::save() const
+{
+  QMutexLocker lock(&m_mutex);
+  return saveUnlocked();
+}
+
+bool TrustStore::saveUnlocked() const
 {
   QJsonArray arr;
   for (const auto &e : m_entries)
@@ -96,21 +105,24 @@ bool TrustStore::save() const
 
 bool TrustStore::contains(const QString &deviceId) const
 {
-  return find(deviceId) != nullptr;
+  return find(deviceId).has_value();
 }
 
-const TrustEntry *TrustStore::find(const QString &deviceId) const
+std::optional<TrustEntry> TrustStore::find(const QString &deviceId) const
 {
-  for (const auto &e : m_entries)
+  QMutexLocker lock(&m_mutex);
+  for (const auto &e : m_entries) {
     if (e.deviceId == deviceId)
-      return &e;
-  return nullptr;
+      return e;
+  }
+  return std::nullopt;
 }
 
 bool TrustStore::updateLastAddr(const QString &deviceId, const QString &addr)
 {
   if (deviceId.isEmpty() || addr.isEmpty())
     return false;
+  QMutexLocker lock(&m_mutex);
   for (auto &entry : m_entries) {
     if (entry.deviceId != deviceId)
       continue;
@@ -118,40 +130,43 @@ bool TrustStore::updateLastAddr(const QString &deviceId, const QString &addr)
       return false;
     entry.lastAddr = addr;
     entry.lastSeen = QDateTime::currentDateTimeUtc();
-    return save();
+    return saveUnlocked();
   }
   return false;
 }
 
 void TrustStore::upsert(const TrustEntry &entry)
 {
+  QMutexLocker lock(&m_mutex);
   for (auto &e : m_entries) {
     if (e.deviceId == entry.deviceId) {
       e = entry;
-      save();
+      saveUnlocked();
       return;
     }
   }
   m_entries.push_back(entry);
-  save();
+  saveUnlocked();
 }
 
 bool TrustStore::remove(const QString &deviceId)
 {
+  QMutexLocker lock(&m_mutex);
   const auto before = m_entries.size();
   m_entries.erase(
       std::remove_if(m_entries.begin(), m_entries.end(), [&](const TrustEntry &e) { return e.deviceId == deviceId; }),
       m_entries.end()
   );
   if (m_entries.size() != before) {
-    save();
+    saveUnlocked();
     return true;
   }
   return false;
 }
 
-const std::vector<TrustEntry> &TrustStore::entries() const
+std::vector<TrustEntry> TrustStore::entries() const
 {
+  QMutexLocker lock(&m_mutex);
   return m_entries;
 }
 

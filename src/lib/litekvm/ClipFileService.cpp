@@ -18,8 +18,13 @@
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonParseError>
+#include <QMetaType>
 #include <QNetworkProxy>
+#include <QThread>
 #include <QTimer>
+
+#include <type_traits>
+#include <utility>
 
 namespace litekvm {
 
@@ -63,6 +68,29 @@ QJsonObject helloMessage(const DeviceIdentity &self)
       {QStringLiteral("name"), self.name()},
       {QStringLiteral("platform"), PairingService::platformString()},
   };
+}
+
+} // namespace
+
+namespace {
+
+// Run @p fn on the thread that owns the service. Callers are already on the
+// wrong thread; the lambda must call back into the public method so the body
+// runs once the affinity matches. Blocking so a listen()/stop() result is
+// visible to the GUI before it returns. Never call this from the service
+// thread, and never have @p fn block on the GUI thread (the worker would
+// deadlock against this wait).
+template <class F> auto onIoThread(ClipFileService *self, F fn) -> decltype(fn())
+{
+  using R = decltype(fn());
+  if constexpr (std::is_void_v<R>) {
+    QMetaObject::invokeMethod(self, std::move(fn), Qt::BlockingQueuedConnection);
+    return;
+  } else {
+    R result{};
+    QMetaObject::invokeMethod(self, [&] { result = fn(); }, Qt::BlockingQueuedConnection);
+    return result;
+  }
 }
 
 } // namespace
@@ -134,7 +162,14 @@ ClipFileService::ClipFileService(const DeviceIdentity &self, TrustStore &trust, 
       m_self(self),
       m_trust(trust)
 {
-  connect(&m_server, &QTcpServer::newConnection, this, &ClipFileService::onNewConnection);
+  qRegisterMetaType<ClipFileOffer>();
+  qRegisterMetaType<TransferProgress>();
+  qRegisterMetaType<ClipFileTransfer::Error>();
+
+  // Parented so a later moveToThread() carries the listener and the timer.
+  // A value member would stay on the thread that constructed it.
+  m_server = new QTcpServer(this);
+  connect(m_server, &QTcpServer::newConnection, this, &ClipFileService::onNewConnection);
 
   m_handshakeTimer = new QTimer(this);
   m_handshakeTimer->setSingleShot(true);
@@ -145,21 +180,24 @@ ClipFileService::~ClipFileService()
 {
   // Also cancels a live transfer, which removes its ".litekvm-part" file.
   closeSession();
-  m_server.close();
+  if (m_server)
+    m_server->close();
 }
 
 bool ClipFileService::listen(quint16 port)
 {
+  if (QThread::currentThread() != thread())
+    return onIoThread(this, [this, port] { return listen(port); });
   if (m_socket) {
     reportError(Error::Busy, QStringLiteral("a session is already live"));
     return false;
   }
-  if (m_server.isListening()) {
+  if (m_server->isListening()) {
     reportError(Error::Busy, QStringLiteral("already listening on port %1").arg(serverPort()));
     return false;
   }
-  if (!m_server.listen(QHostAddress::AnyIPv4, port)) {
-    reportError(Error::Listen, QStringLiteral("listen failed on port %1: %2").arg(port).arg(m_server.errorString()));
+  if (!m_server->listen(QHostAddress::AnyIPv4, port)) {
+    reportError(Error::Listen, QStringLiteral("listen failed on port %1: %2").arg(port).arg(m_server->errorString()));
     return false;
   }
   m_role = Role::Server;
@@ -168,23 +206,35 @@ bool ClipFileService::listen(quint16 port)
 
 void ClipFileService::stop()
 {
+  if (QThread::currentThread() != thread()) {
+    onIoThread(this, [this] { stop(); });
+    return;
+  }
   closeSession();
-  m_server.close();
+  m_server->close();
   m_role = Role::None;
 }
 
 bool ClipFileService::isListening() const
 {
-  return m_server.isListening();
+  if (QThread::currentThread() != thread())
+    return onIoThread(const_cast<ClipFileService *>(this), [this] { return isListening(); });
+  return m_server->isListening();
 }
 
 quint16 ClipFileService::serverPort() const
 {
-  return m_server.serverPort();
+  if (QThread::currentThread() != thread())
+    return onIoThread(const_cast<ClipFileService *>(this), [this] { return serverPort(); });
+  return m_server->serverPort();
 }
 
 void ClipFileService::dropIdleSession()
 {
+  if (QThread::currentThread() != thread()) {
+    onIoThread(this, [this] { dropIdleSession(); });
+    return;
+  }
   if (m_transfer && m_transfer->isActive())
     return;
   // The offer has not been written yet. Closing this socket is how a second
@@ -197,6 +247,16 @@ void ClipFileService::dropIdleSession()
 
 void ClipFileService::sendFilesTo(const QString &host, quint16 port, const QStringList &paths, const QString &intent)
 {
+  // Queued, not blocking. The body pumps processEvents until the handshake
+  // finishes; doing that on the GUI would stall the drag, and blocking here
+  // while the worker waits on the GUI for anything else would deadlock.
+  // Chunk pumping stays on this thread after the call returns to the GUI.
+  if (QThread::currentThread() != thread()) {
+    QMetaObject::invokeMethod(
+        this, [this, host, port, paths, intent] { sendFilesTo(host, port, paths, intent); }, Qt::QueuedConnection
+    );
+    return;
+  }
   const QString wireIntent = intent.isEmpty() ? QStringLiteral("clipboard") : intent;
   if (m_pumpingHandshake) {
     ClipboardFileBridge::traceStage(
@@ -259,7 +319,7 @@ void ClipFileService::sendFilesTo(const QString &host, quint16 port, const QStri
                                         .arg(m_pendingIntent, host)
                                         .arg(port)
                                         .arg(paths.size())
-                                        .arg(m_server.isListening() ? 1 : 0)
+                                        .arg(m_server->isListening() ? 1 : 0)
   );
   // A file drag runs inside the shell's modal loop. That loop delivered the
   // "sending" timer but not this socket, so the offer was never written and
@@ -295,51 +355,81 @@ void ClipFileService::sendFilesTo(const QString &host, quint16 port, const QStri
 
 void ClipFileService::setIncomingDirectory(const QString &dir)
 {
+  if (QThread::currentThread() != thread()) {
+    onIoThread(this, [this, dir] { setIncomingDirectory(dir); });
+    return;
+  }
   m_incomingDir = QDir::cleanPath(dir);
 }
 
 QString ClipFileService::incomingDirectory() const
 {
+  if (QThread::currentThread() != thread())
+    return onIoThread(const_cast<ClipFileService *>(this), [this] { return incomingDirectory(); });
   return m_incomingDir;
 }
 
 void ClipFileService::setAutoAccept(bool on)
 {
+  if (QThread::currentThread() != thread()) {
+    onIoThread(this, [this, on] { setAutoAccept(on); });
+    return;
+  }
   m_autoAccept = on;
 }
 
 bool ClipFileService::autoAccept() const
 {
+  if (QThread::currentThread() != thread())
+    return onIoThread(const_cast<ClipFileService *>(this), [this] { return autoAccept(); });
   return m_autoAccept;
 }
 
 void ClipFileService::setChunkSize(int bytes)
 {
+  if (QThread::currentThread() != thread()) {
+    onIoThread(this, [this, bytes] { setChunkSize(bytes); });
+    return;
+  }
   m_chunkSize = bytes;
 }
 
 int ClipFileService::chunkSize() const
 {
+  if (QThread::currentThread() != thread())
+    return onIoThread(const_cast<ClipFileService *>(this), [this] { return chunkSize(); });
   return m_chunkSize;
 }
 
 void ClipFileService::setMaxTransferBytes(qint64 bytes)
 {
+  if (QThread::currentThread() != thread()) {
+    onIoThread(this, [this, bytes] { setMaxTransferBytes(bytes); });
+    return;
+  }
   m_maxTransferBytes = bytes > 0 ? bytes : 0;
 }
 
 qint64 ClipFileService::maxTransferBytes() const
 {
+  if (QThread::currentThread() != thread())
+    return onIoThread(const_cast<ClipFileService *>(this), [this] { return maxTransferBytes(); });
   return m_maxTransferBytes;
 }
 
 void ClipFileService::setHandshakeTimeout(int ms)
 {
+  if (QThread::currentThread() != thread()) {
+    onIoThread(this, [this, ms] { setHandshakeTimeout(ms); });
+    return;
+  }
   m_handshakeTimeoutMs = ms > 0 ? ms : kDefaultHandshakeTimeoutMs;
 }
 
 int ClipFileService::handshakeTimeout() const
 {
+  if (QThread::currentThread() != thread())
+    return onIoThread(const_cast<ClipFileService *>(this), [this] { return handshakeTimeout(); });
   return m_handshakeTimeoutMs;
 }
 
@@ -347,36 +437,52 @@ int ClipFileService::handshakeTimeout() const
 
 ClipFileService::Role ClipFileService::role() const
 {
+  if (QThread::currentThread() != thread())
+    return onIoThread(const_cast<ClipFileService *>(this), [this] { return role(); });
   return m_role;
 }
 
 bool ClipFileService::hasPeer() const
 {
+  if (QThread::currentThread() != thread())
+    return onIoThread(const_cast<ClipFileService *>(this), [this] { return hasPeer(); });
   return m_helloDone;
 }
 
 QString ClipFileService::peerDeviceId() const
 {
+  if (QThread::currentThread() != thread())
+    return onIoThread(const_cast<ClipFileService *>(this), [this] { return peerDeviceId(); });
   return m_peerDeviceId;
 }
 
 QString ClipFileService::peerName() const
 {
+  if (QThread::currentThread() != thread())
+    return onIoThread(const_cast<ClipFileService *>(this), [this] { return peerName(); });
   return m_peerName;
 }
 
 bool ClipFileService::isBusy() const
 {
+  // Atomic so a GUI read during pump() does not wait out the high-water burst
+  // and cannot deadlock against the worker.
+  if (QThread::currentThread() != thread())
+    return m_busy.load(std::memory_order_acquire);
   return m_transfer && m_transfer->isActive();
 }
 
 bool ClipFileService::hasSession() const
 {
+  if (QThread::currentThread() != thread())
+    return m_sessionLive.load(std::memory_order_acquire);
   return m_socket != nullptr || m_transfer != nullptr;
 }
 
 ClipFileTransfer *ClipFileService::transfer() const
 {
+  if (QThread::currentThread() != thread())
+    return nullptr;
   return m_transfer;
 }
 
@@ -384,28 +490,43 @@ ClipFileTransfer *ClipFileService::transfer() const
 
 void ClipFileService::acceptOffer(qint64 resumeFrom)
 {
+  if (QThread::currentThread() != thread()) {
+    onIoThread(this, [this, resumeFrom] { acceptOffer(resumeFrom); });
+    return;
+  }
   if (m_transfer)
     m_transfer->acceptOffer(resumeFrom);
+  publishSessionFlags();
 }
 
 void ClipFileService::rejectOffer(const QString &reason)
 {
+  if (QThread::currentThread() != thread()) {
+    onIoThread(this, [this, reason] { rejectOffer(reason); });
+    return;
+  }
   if (m_transfer)
     m_transfer->rejectOffer(reason);
+  publishSessionFlags();
 }
 
 void ClipFileService::cancel()
 {
+  if (QThread::currentThread() != thread()) {
+    onIoThread(this, [this] { cancel(); });
+    return;
+  }
   if (m_transfer)
     m_transfer->cancel();
+  publishSessionFlags();
 }
 
 // ---------------------------------------------------------------- server side
 
 void ClipFileService::onNewConnection()
 {
-  while (m_server.hasPendingConnections()) {
-    QTcpSocket *socket = m_server.nextPendingConnection();
+  while (m_server->hasPendingConnections()) {
+    QTcpSocket *socket = m_server->nextPendingConnection();
     if (!socket)
       continue;
     if (m_socket) {
@@ -518,6 +639,7 @@ void ClipFileService::attachSocket(QTcpSocket *socket, Role role)
 
   // Covers both "connect to the peer" and "peer answered CALP_HELLO".
   m_handshakeTimer->start(m_handshakeTimeoutMs);
+  publishSessionFlags();
 }
 
 void ClipFileService::sendHello(QTcpSocket *socket)
@@ -648,8 +770,9 @@ void ClipFileService::notePeerSeen(const QString &deviceId, const QHostAddress &
 {
   // Keep the trusted entry's informational fields fresh (spec §6: reconnect
   // trusts device_id, the address is a hint only).
-  if (const TrustEntry *entry = m_trust.find(deviceId)) {
-    TrustEntry updated = *entry;
+  const auto existing = m_trust.find(deviceId);
+  if (existing) {
+    TrustEntry updated = *existing;
     updated.lastSeen = QDateTime::currentDateTimeUtc();
     const QString normalized = DiscoveryService::normalizeHost(address.toString());
     updated.lastAddr = normalized.isEmpty() ? address.toString() : normalized;
@@ -714,6 +837,7 @@ void ClipFileService::startTransfer()
           QStringLiteral("CLIP_OFFER"), QStringLiteral("skipped no-pending-paths role=%1").arg(toString(m_role))
       );
     }
+    publishSessionFlags();
     return;
   }
   if (m_role != Role::Client) {
@@ -729,11 +853,17 @@ void ClipFileService::startTransfer()
   m_pendingPaths.clear();
   transfer->setOutgoingIntent(m_pendingIntent);
   transfer->sendLocalPaths(paths);
+  publishSessionFlags();
 }
 
 void ClipFileService::forwardTransferSignals(ClipFileTransfer *transfer)
 {
-  connect(transfer, &ClipFileTransfer::offerReceived, this, &ClipFileService::offerReceived);
+  connect(transfer, &ClipFileTransfer::offerReceived, this, [this](const ClipFileOffer &offer) {
+    // OfferReceived is active. Publish before the GUI slot runs so isBusy()
+    // is already true when the prompt (or auto-accept) calls back.
+    publishSessionFlags();
+    Q_EMIT offerReceived(offer);
+  });
   connect(transfer, &ClipFileTransfer::progressChanged, this, &ClipFileService::progressChanged);
   connect(transfer, &ClipFileTransfer::entryCompleted, this, &ClipFileService::entryCompleted);
 
@@ -801,9 +931,16 @@ void ClipFileService::closeSession()
   }
 
   m_closing = false;
+  publishSessionFlags();
 
   if (hadPeer)
     Q_EMIT peerDisconnected();
+}
+
+void ClipFileService::publishSessionFlags()
+{
+  m_busy.store(m_transfer && m_transfer->isActive(), std::memory_order_release);
+  m_sessionLive.store(m_socket != nullptr || m_transfer != nullptr, std::memory_order_release);
 }
 
 void ClipFileService::reportError(Error error, const QString &detail)

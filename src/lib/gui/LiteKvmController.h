@@ -16,6 +16,8 @@
 
 #include <optional>
 
+class QThread;
+
 namespace litekvm {
 class ClipFileService;
 class ClipboardFileBridge;
@@ -44,6 +46,7 @@ public:
   };
 
   explicit LiteKvmController(QObject *parent = nullptr);
+  ~LiteKvmController() override;
 
   QString deviceName() const;
   void setDeviceName(const QString &name);
@@ -162,6 +165,8 @@ private:
   litekvm::AutoConnect *m_autoConnect = nullptr;
 
   litekvm::ClipFileService *m_clipFile = nullptr;
+  /// Owns the 25903 socket thread. The service object is deleted on that thread.
+  QThread *m_clipThread = nullptr;
   litekvm::ClipboardFileBridge *m_clipBridge = nullptr;
   bool m_fileClipboardEnabled = false;
   bool m_transferActive = false;

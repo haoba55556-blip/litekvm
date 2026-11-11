@@ -53,6 +53,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 
+#include <atomic>
 #include <optional>
 
 class QTimer;
@@ -79,6 +80,12 @@ namespace litekvm {
  * behind its handshake frame; any leftover byte is treated as a protocol error.
  * Only then is the socket handed over — the service stops reading it so
  * ClipFileTransfer is the sole consumer of its bytes.
+ *
+ * The GUI moves this object onto a worker thread so readyRead, bytesWritten
+ * and ClipFileTransfer::pump() are not serviced by the Qt GUI thread. Explorer's
+ * modal drag loop starves that thread. Public methods hop onto the object's
+ * thread. isBusy() / hasSession() are safe from the GUI; transfer() is only
+ * meaningful on the service thread.
  */
 class ClipFileService : public QObject
 {
@@ -170,13 +177,15 @@ public:
   bool hasPeer() const;
   QString peerDeviceId() const;
   QString peerName() const;
-  /// True while a ClipFileTransfer is running.
+  /// True while a ClipFileTransfer is running. Safe to call from the GUI thread.
   bool isBusy() const;
   /// True while a socket or transfer is still open. A handshake failure clears
-  /// this even if the GUI still thinks a send is in progress.
+  /// this even if the GUI still thinks a send is in progress. Safe from the GUI.
   bool hasSession() const;
   /// The live transfer, or nullptr between sessions (it is destroyed with the
   /// session, so read state from the forwarded signals once it ends).
+  /// A call from any thread but the service thread returns nullptr: the object
+  /// must not be touched off its thread. GUI code uses isBusy() / hasSession().
   ClipFileTransfer *transfer() const;
 
 Q_SIGNALS:
@@ -211,11 +220,13 @@ private:
   void closeSession();
   void reportError(Error error, const QString &detail);
   void sendJson(QTcpSocket *socket, const QJsonObject &message);
+  /// Mirror of isBusy() / hasSession() for readers on another thread.
+  void publishSessionFlags();
 
   const DeviceIdentity &m_self;
   TrustStore &m_trust;
 
-  QTcpServer m_server;
+  QTcpServer *m_server = nullptr;
   QTcpSocket *m_socket = nullptr;
   ClipFileTransfer *m_transfer = nullptr;
   QTimer *m_handshakeTimer = nullptr;
@@ -235,6 +246,9 @@ private:
   int m_chunkSize = ClipFileTransfer::defaultChunkSize();
   qint64 m_maxTransferBytes = 0; ///< 0 keeps the ClipFileTransfer default
   int m_handshakeTimeoutMs = 10'000;
+  // Written on the service thread, read from the GUI. release/acquire.
+  mutable std::atomic<bool> m_busy{false};
+  mutable std::atomic<bool> m_sessionLive{false};
 };
 
 } // namespace litekvm

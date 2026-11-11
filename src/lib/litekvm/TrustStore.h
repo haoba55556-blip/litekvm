@@ -7,6 +7,7 @@
 
 #include <QByteArray>
 #include <QDateTime>
+#include <QMutex>
 #include <QString>
 
 #include <algorithm>
@@ -29,6 +30,9 @@ struct TrustEntry
 /**
  * @brief JSON-persisted list of paired devices. Reconnect trusts device_id,
  * never IP addresses.
+ *
+ * Methods take an internal lock. The 25903 worker thread reads the store while
+ * the GUI thread updates it, so find() and entries() return copies.
  */
 class TrustStore
 {
@@ -39,16 +43,21 @@ public:
   bool save() const;
 
   bool contains(const QString &deviceId) const;
-  const TrustEntry *find(const QString &deviceId) const;
+  /// Engaged copy when @p deviceId is paired. Empty otherwise.
+  std::optional<TrustEntry> find(const QString &deviceId) const;
   void upsert(const TrustEntry &entry);
   /// Write lastAddr when it actually changed. Returns true if the file was updated.
   bool updateLastAddr(const QString &deviceId, const QString &addr);
   bool remove(const QString &deviceId);
-  const std::vector<TrustEntry> &entries() const;
+  /// Snapshot. Safe to iterate while another thread calls upsert().
+  std::vector<TrustEntry> entries() const;
 
 private:
+  bool saveUnlocked() const;
+
   QString m_path;
   std::vector<TrustEntry> m_entries;
+  mutable QMutex m_mutex;
 };
 
 } // namespace litekvm

@@ -2071,10 +2071,12 @@ void MainWindow::onActiveScreen(const QString &screen)
       QStringLiteral("remote-drag"),
       QStringLiteral("resume reason=%1 paths=%2 first=%3").arg(reason).arg(paths.size()).arg(paths.value(0))
   );
-  startRemoteDrag(paths);
+  // pointer-arrived after deferred-pointer-remote: keep the appear grace so a
+  // mid-cross button injection (~0.4 s) is still observed.
+  startRemoteDrag(paths, false);
 }
 
-void MainWindow::startRemoteDrag(const QStringList &paths)
+void MainWindow::startRemoteDrag(const QStringList &paths, bool skipAppearGrace)
 {
   if (paths.isEmpty()) {
     litekvm::ClipboardFileBridge::traceStage(
@@ -2102,11 +2104,16 @@ void MainWindow::startRemoteDrag(const QStringList &paths)
   m_remoteDragActive = true;
   m_remoteDragPaths = paths;
   m_remoteDragWait.reset();
+  // pointer-local skips kAppearMs. A deferred / mid-cross landing keeps it.
+  m_remoteDragWait.setSkipAppearGrace(skipAppearGrace);
   m_remoteDragClock.start();
   if (m_edgeDrop != nullptr)
     m_edgeDrop->setPassThrough(true);
   litekvm::ClipboardFileBridge::traceStage(
-      QStringLiteral("remote-drag"), QStringLiteral("start paths=%1 first=%2").arg(paths.size()).arg(paths.first())
+      QStringLiteral("remote-drag"), QStringLiteral("start paths=%1 first=%2 appear_grace=%3")
+                                         .arg(paths.size())
+                                         .arg(paths.first())
+                                         .arg(skipAppearGrace ? 0 : 1)
   );
   pollRemoteDrag();
 }
@@ -2150,8 +2157,10 @@ void MainWindow::finishRemoteDrag(const char *reason)
   // and re-enter this timer; a second copy would land the file twice.
   m_remoteDragActive = false;
   litekvm::ClipboardFileBridge::traceStage(
-      QStringLiteral("remote-drag"),
-      QStringLiteral("result=copy reason=%1 paths=%2").arg(QString::fromLatin1(reason)).arg(paths.size())
+      QStringLiteral("remote-drag"), QStringLiteral("result=copy reason=%1 paths=%2 appear_grace=%3")
+                                         .arg(QString::fromLatin1(reason))
+                                         .arg(paths.size())
+                                         .arg(m_remoteDragWait.skipAppearGrace() ? 0 : 1)
   );
 #if defined(Q_OS_WIN)
   copyDragUnderCursor(paths, reason);
@@ -2417,7 +2426,10 @@ void MainWindow::onFileTransferCompleted(const QStringList &localPaths, bool out
       if (!now.isEmpty()) {
         // Drop under the cursor. Do not also plant the files on the clipboard;
         // that is the copy-paste path and makes a drag feel like Ctrl+V.
-        QTimer::singleShot(0, this, [this, now] { startRemoteDrag(now); });
+        // pointer-local + already-up copies on the first poll. The 600 ms
+        // grace stays on for a later pointer-arrived (mid-cross) landing.
+        const bool pointerLocal = reason == QLatin1String("pointer-local");
+        QTimer::singleShot(0, this, [this, now, pointerLocal] { startRemoteDrag(now, pointerLocal); });
       }
     } else if (m_liteKvmController && !localPaths.isEmpty()) {
       m_liteKvmController->copyFilesToClipboard(localPaths);
