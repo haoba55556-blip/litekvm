@@ -488,19 +488,30 @@ void MainWindow::installHomeStage()
   });
   connect(m_home, &NeoHome::closeRequested, this, &QWidget::close);
 
-  int targetW = 1280;
-  int targetH = 720;
-  int minW = 960;
-  int minH = 580;
+  const QSize hint = m_home->sizeHint();
+  const QSize smallest = m_home->minimumSizeHint();
+  int targetW = hint.width();
+  int targetH = hint.height();
+  int minW = smallest.width();
+  int minH = smallest.height();
   if (QScreen *screen = this->screen()) {
     const QRect avail = screen->availableGeometry().adjusted(16, 16, -16, -16);
-    targetW = qMin(targetW, qMax(640, avail.width()));
-    targetH = qMin(targetH, qMax(420, avail.height()));
+    targetW = qMin(targetW, qMax(560, avail.width()));
+    targetH = qMin(targetH, qMax(360, avail.height()));
     minW = qMin(minW, targetW);
     minH = qMin(minH, targetH);
   }
-  if (width() < targetW || height() < targetH)
-    resize(qMax(width(), targetW), qMax(height(), targetH));
+  const QSize current = size();
+  // The previous home stage forced 1280×720 and only grew. Snap that default
+  // (and any smaller restored window) to the two-thirds stage. A size already
+  // at least this large, other than the old default, is left as the user set it.
+  const bool previousStage =
+      current.width() >= 1100 && current.width() <= 1400 && current.height() >= 620 && current.height() <= 820;
+  const bool undersized = current.width() < targetW || current.height() < targetH;
+  if (!isMaximized() && (previousStage || undersized)) {
+    resize(targetW, targetH);
+    m_expandedSize = size();
+  }
   setMinimumSize(minW, minH);
   if (QScreen *screen = this->screen()) {
     const QRect avail = screen->availableGeometry();
@@ -1419,15 +1430,26 @@ bool MainWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr
   if (m_home && (eventType == "windows_generic_MSG" || eventType == "windows_dispatcher_MSG")) {
     const auto *msg = static_cast<const MSG *>(message);
     if (msg->message == WM_NCHITTEST) {
-      const int gx = static_cast<int>(static_cast<short>(LOWORD(msg->lParam)));
-      const int gy = static_cast<int>(static_cast<short>(HIWORD(msg->lParam)));
-      switch (m_home->frameHitAt(m_home->mapFromGlobal(QPoint(gx, gy)))) {
+      // lParam is physical screen pixels. Qt widget coordinates are logical,
+      // so a 125% or 150% laptop maps the caption and resize edges to the
+      // wrong place unless the point is converted with the window's own scale.
+      POINT pt;
+      pt.x = static_cast<int>(static_cast<short>(LOWORD(msg->lParam)));
+      pt.y = static_cast<int>(static_cast<short>(HIWORD(msg->lParam)));
+      if (msg->hwnd)
+        ::ScreenToClient(msg->hwnd, &pt);
+      const qreal dpr = devicePixelRatioF();
+      const qreal scale = dpr > 0.0 ? dpr : 1.0;
+      const QPoint topLocal(qRound(static_cast<qreal>(pt.x) / scale), qRound(static_cast<qreal>(pt.y) / scale));
+      switch (m_home->frameHitAt(m_home->mapFrom(this, topLocal))) {
       case NeoHome::FrameHit::Outside:
         *result = HTTRANSPARENT;
         return true;
       case NeoHome::FrameHit::Caption:
-        *result = HTCAPTION;
-        return true;
+        // Leave this as client area. NeoHome starts the move from the left
+        // press so the drag still runs when a layered frameless window ignores
+        // HTCAPTION. Resize edges above stay native.
+        break;
       case NeoHome::FrameHit::Left:
         *result = HTLEFT;
         return true;
