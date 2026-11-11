@@ -12,10 +12,10 @@
 #include "deskflow/ClipboardChunk.h"
 #include "deskflow/ClipboardTypes.h"
 #include "deskflow/ClipboardYield.h"
-#include "deskflow/StreamChunker.h"
 #include "deskflow/KeyTypes.h"
 #include "deskflow/KeyboardLayoutManager.h"
 #include "deskflow/MouseMotionCoalescer.h"
+#include "deskflow/StreamChunker.h"
 
 class Client;
 class ClientInfo;

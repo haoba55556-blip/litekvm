@@ -50,7 +50,6 @@ private:
 class StreamChunker
 {
 public:
-  static void sendClipboard(
-      const std::string_view &data, size_t size, ClipboardID id, uint32_t sequence, ClipboardYieldPump &pump
-  );
+  static void
+  sendClipboard(const std::string_view &data, size_t size, ClipboardID id, uint32_t sequence, ClipboardYieldPump &pump);
 };

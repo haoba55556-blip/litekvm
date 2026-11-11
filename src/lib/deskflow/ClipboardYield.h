@@ -169,8 +169,7 @@ private:
 // Read-loop order. 'M' is a mouse message (applied immediately). 'C' is a
 // clipboard piece still in progress. 'F' is the last piece: the bytes are
 // queued, and every mouse in this buffer is traced before "apply".
-inline std::vector<std::string>
-replayClipboardAndMouse(const std::vector<char> &ops, const std::string &payload)
+inline std::vector<std::string> replayClipboardAndMouse(const std::vector<char> &ops, const std::string &payload)
 {
   ClipboardApplyGate gate;
   std::vector<std::string> trace;

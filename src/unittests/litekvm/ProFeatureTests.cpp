@@ -625,8 +625,7 @@ private Q_SLOTS:
     QVERIFY(laptop.x < 2519);
 
     // A few pixels of residual motion cannot leave, and cannot sit on 2519.
-    const auto nudge =
-        applyRelativeDuringSettle(laptop.x, laptop.y, 8, 0, 0, 0, 2520, 1680, laptop.margin, true);
+    const auto nudge = applyRelativeDuringSettle(laptop.x, laptop.y, 8, 0, 0, 0, 2520, 1680, laptop.margin, true);
     QVERIFY(!nudge.blockedRecross);
     QVERIFY(nudge.x <= 2520 - 1 - kSwitchLandingMargin);
     QCOMPARE(nudge.x, laptop.x);
@@ -642,8 +641,7 @@ private Q_SLOTS:
     // 400 px is under a quarter of 2520, so the center-warp filter lets it
     // through; the settle drops it.
     QVERIFY(!isCenterWarpEcho(400, 0, 2520, 1680));
-    const auto spike =
-        applyRelativeDuringSettle(laptop.x, laptop.y, 400, 0, 0, 0, 2520, 1680, laptop.margin, true);
+    const auto spike = applyRelativeDuringSettle(laptop.x, laptop.y, 400, 0, 0, 0, 2520, 1680, laptop.margin, true);
     QCOMPARE(spike.x, laptop.x);
     QCOMPARE(spike.y, laptop.y);
     const bool holding = settleHolding(0.050, kSwitchSettleSeconds);
@@ -652,8 +650,7 @@ private Q_SLOTS:
     QVERIFY(bounce.x <= 2520 - 1 - kSwitchLandingMargin);
 
     // After the hold, the same step off the real edge is a deliberate return.
-    const auto back =
-        applyRelativeDuringSettle(2519, 840, 1, 0, 0, 0, 2520, 1680, kSwitchLandingMargin, false);
+    const auto back = applyRelativeDuringSettle(2519, 840, 1, 0, 0, 0, 2520, 1680, kSwitchLandingMargin, false);
     QVERIFY(!back.blockedRecross);
     QCOMPARE(back.x, 2520);
 

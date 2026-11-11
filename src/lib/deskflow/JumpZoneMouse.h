@@ -208,7 +208,7 @@ clampInsideMargin(int32_t left, int32_t top, int32_t width, int32_t height, int3
     x = maxX;
   if (y < minY)
     y = minY;
-  else   if (y > maxY)
+  else if (y > maxY)
     y = maxY;
   return x != oldX || y != oldY;
 }
@@ -217,9 +217,8 @@ clampInsideMargin(int32_t left, int32_t top, int32_t width, int32_t height, int3
 // button-up crossing: pull the landing out of the jump zone and hold
 // kSwitchSettleSeconds. A point a few pixels inside the edge (the live
 // desktop return at x=1..8) is pulled in with the whole margin band.
-inline ScreenLanding landInsideScreen(
-    int32_t left, int32_t top, int32_t width, int32_t height, int32_t x, int32_t y, bool drag
-)
+inline ScreenLanding
+landInsideScreen(int32_t left, int32_t top, int32_t width, int32_t height, int32_t x, int32_t y, bool drag)
 {
   ScreenLanding landing;
   landing.margin = drag ? kDragLandingMargin : kSwitchLandingMargin;
